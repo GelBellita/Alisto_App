@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "237515794933",
+    "project_id": "the-alisto",
+    "storage_bucket": "the-alisto.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237515794933:android:ea7d395f777103000258bc",
+        "android_client_info": {
+          "package_name": "com.example.alisto_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvIoxyj8z2RT2_sBa2pzo4hYh48jwcBdk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
