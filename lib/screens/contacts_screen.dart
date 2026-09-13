@@ -17,7 +17,29 @@ class ContactsScreen extends StatelessWidget {
           child: StreamBuilder<dynamic>(
             stream: FirestoreService.contactsStream(),
             builder: (context, snapshot) {
-              final docs = snapshot.data?.docs ?? [];
+              // Show a clear message instead of an empty-looking screen
+              // when no device is linked to this account yet.
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  child: Center(
+                    child: Text(
+                      'No device is linked to this account yet.\n'
+                      'Please finish device registration or linking first.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                );
+              }
+              if (!snapshot.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 60),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              final docs = snapshot.data ?? [];
               final contacts = docs
                   .map<ContactModel>((d) => ContactModel.fromDoc(d))
                   .toList();
@@ -218,6 +240,7 @@ class ContactsScreen extends StatelessWidget {
     final relationController = TextEditingController();
     final phoneController = TextEditingController();
     String type = defaultType;
+    bool saving = false;
 
     showModalBottomSheet(
       context: context,
@@ -229,6 +252,41 @@ class ContactsScreen extends StatelessWidget {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
+            void showSheetError(String message) {
+              ScaffoldMessenger.of(sheetContext).showSnackBar(
+                SnackBar(
+                  content: Text(message),
+                  backgroundColor: AppColors.error,
+                ),
+              );
+            }
+
+            Future<void> handleSave() async {
+              if (nameController.text.trim().isEmpty ||
+                  phoneController.text.trim().isEmpty) {
+                showSheetError('Please fill in name and phone.');
+                return;
+              }
+
+              setSheetState(() => saving = true);
+              try {
+                await FirestoreService.addContact(
+                  name: nameController.text.trim(),
+                  relation: relationController.text.trim(),
+                  phone: phoneController.text.trim(),
+                  type: type,
+                );
+                if (sheetContext.mounted) Navigator.pop(sheetContext);
+              } catch (e) {
+                setSheetState(() => saving = false);
+                showSheetError(
+                  e is StateError
+                      ? e.message
+                      : 'Could not save the contact. Please try again.',
+                );
+              }
+            }
+
             return Padding(
               padding: EdgeInsets.only(
                 left: 20,
@@ -247,19 +305,16 @@ class ContactsScreen extends StatelessWidget {
                   const SizedBox(height: 16),
                   AppTextField(
                     label: 'Name',
-                    hint: 'Juan Santos',
                     controller: nameController,
                   ),
                   const SizedBox(height: 14),
                   AppTextField(
                     label: type == 'bhw' ? 'Role' : 'Relation',
-                    hint: type == 'bhw' ? 'Barangay Health Worker' : 'Son',
                     controller: relationController,
                   ),
                   const SizedBox(height: 14),
                   AppTextField(
                     label: 'Phone Number',
-                    hint: '0917 123 4567',
                     keyboardType: TextInputType.phone,
                     controller: phoneController,
                   ),
@@ -288,25 +343,8 @@ class ContactsScreen extends StatelessWidget {
                   const SizedBox(height: 20),
                   PrimaryButton(
                     label: 'Save Contact',
-                    onPressed: () async {
-                      if (nameController.text.trim().isEmpty ||
-                          phoneController.text.trim().isEmpty) {
-                        ScaffoldMessenger.of(sheetContext).showSnackBar(
-                          const SnackBar(
-                            content: Text('Please fill in name and phone.'),
-                            backgroundColor: AppColors.error,
-                          ),
-                        );
-                        return;
-                      }
-                      await FirestoreService.addContact(
-                        name: nameController.text.trim(),
-                        relation: relationController.text.trim(),
-                        phone: phoneController.text.trim(),
-                        type: type,
-                      );
-                      if (sheetContext.mounted) Navigator.pop(sheetContext);
-                    },
+                    loading: saving,
+                    onPressed: handleSave,
                   ),
                 ],
               ),

@@ -56,7 +56,7 @@ class SecondaryButton extends StatelessWidget {
 
 class AppTextField extends StatelessWidget {
   final String label;
-  final String hint;
+  final String? hint;
   final bool obscureText;
   final TextInputType? keyboardType;
   final Widget? suffixIcon;
@@ -65,7 +65,7 @@ class AppTextField extends StatelessWidget {
   const AppTextField({
     super.key,
     required this.label,
-    required this.hint,
+    this.hint,
     this.obscureText = false,
     this.keyboardType,
     this.suffixIcon,

@@ -19,10 +19,10 @@ class ContactModel {
     final data = doc.data() as Map<String, dynamic>;
     return ContactModel(
       id: doc.id,
-      name: data['name'] ?? '',
-      relation: data['relation'] ?? '',
-      phone: data['phone'] ?? '',
-      type: data['type'] ?? 'family',
+      name: data['full_name'] ?? '',
+      relation: data['relationship'] ?? '',
+      phone: data['contact_num'] ?? '',
+      type: data['contact_type'] ?? 'family',
     );
   }
 
@@ -53,8 +53,8 @@ class MedicineModel {
     final data = doc.data() as Map<String, dynamic>;
     return MedicineModel(
       id: doc.id,
-      name: data['name'] ?? '',
-      time: data['time'] ?? '',
+      name: data['medicine_name'] ?? '',
+      time: data['reminder_time'] ?? '',
       status: data['status'] ?? 'Upcoming',
     );
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' as cupertino;
 
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -25,6 +26,30 @@ Future<void> showMedicineSheet(
   );
 }
 
+/// Formats a TimeOfDay as "9:00 AM" — single time, no range, no manual
+/// AM/PM typing needed since it always comes from the picker.
+String _formatTimeOfDay(TimeOfDay t) {
+  final hour = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+  final minute = t.minute.toString().padLeft(2, '0');
+  final period = t.period == DayPeriod.am ? 'AM' : 'PM';
+  return '$hour:$minute $period';
+}
+
+/// Best-effort parse of whatever time string was already saved (old data
+/// may still be in the "9:00 - 10:00 AM" range format), so editing an
+/// existing reminder pre-fills the picker instead of showing blank.
+TimeOfDay? _parseTimeString(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final match = RegExp(r'(\d{1,2}):(\d{2})\s*([AaPp][Mm])').firstMatch(raw);
+  if (match == null) return null;
+  int hour = int.parse(match.group(1)!);
+  final minute = int.parse(match.group(2)!);
+  final period = match.group(3)!.toUpperCase();
+  if (period == 'PM' && hour != 12) hour += 12;
+  if (period == 'AM' && hour == 12) hour = 0;
+  return TimeOfDay(hour: hour, minute: minute);
+}
+
 class _MedicineSheet extends StatefulWidget {
   final MedicineModel? existing;
   const _MedicineSheet({this.existing});
@@ -35,7 +60,7 @@ class _MedicineSheet extends StatefulWidget {
 
 class _MedicineSheetState extends State<_MedicineSheet> {
   late final TextEditingController _nameController;
-  late final TextEditingController _timeController;
+  TimeOfDay? _selectedTime;
   bool _saving = false;
 
   bool get _isEditing => widget.existing != null;
@@ -44,13 +69,12 @@ class _MedicineSheetState extends State<_MedicineSheet> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.existing?.name ?? '');
-    _timeController = TextEditingController(text: widget.existing?.time ?? '');
+    _selectedTime = _parseTimeString(widget.existing?.time);
   }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _timeController.dispose();
     super.dispose();
   }
 
@@ -60,13 +84,71 @@ class _MedicineSheetState extends State<_MedicineSheet> {
     );
   }
 
+  Future<void> _pickTime() async {
+    final initial = _selectedTime ?? TimeOfDay.now();
+    var tempDateTime = DateTime(2020, 1, 1, initial.hour, initial.minute);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 280,
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedTime = TimeOfDay(
+                            hour: tempDateTime.hour,
+                            minute: tempDateTime.minute,
+                          );
+                        });
+                        Navigator.pop(sheetContext);
+                      },
+                      child: const Text(
+                        'Done',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 1, color: AppColors.border),
+                Expanded(
+                  child: cupertino.CupertinoDatePicker(
+                    mode: cupertino.CupertinoDatePickerMode.time,
+                    initialDateTime: tempDateTime,
+                    use24hFormat: false,
+                    onDateTimeChanged: (value) => tempDateTime = value,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _handleSave() async {
     final name = _nameController.text.trim();
-    final time = _timeController.text.trim();
-    if (name.isEmpty || time.isEmpty) {
-      _showError('Please fill in both fields.');
+    if (name.isEmpty || _selectedTime == null) {
+      _showError('Please fill in the medicine name and select a time.');
       return;
     }
+    final time = _formatTimeOfDay(_selectedTime!);
 
     setState(() => _saving = true);
     try {
@@ -164,14 +246,42 @@ class _MedicineSheetState extends State<_MedicineSheet> {
           const SizedBox(height: 8),
           AppTextField(
             label: 'Medicine Name',
-            hint: 'e.g. Losartan',
             controller: _nameController,
           ),
           const SizedBox(height: 14),
-          AppTextField(
-            label: 'Time',
-            hint: 'e.g. 09:00 - 10:00 AM',
-            controller: _timeController,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Time', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: _pickTime,
+                child: InputDecorator(
+                  decoration: const InputDecoration(),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _selectedTime == null
+                            ? 'Select time'
+                            : _formatTimeOfDay(_selectedTime!),
+                        style: TextStyle(
+                          color: _selectedTime == null
+                              ? AppColors.textSecondary
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                      const Icon(
+                        Icons.access_time_rounded,
+                        size: 18,
+                        color: AppColors.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           PrimaryButton(
@@ -225,9 +335,14 @@ class AllMedicinesScreen extends StatelessWidget {
                     builder: (context, snapshot) {
                       if (snapshot.hasError) {
                         return Center(
-                          child: Text(
-                            'Could not load reminders.',
-                            style: Theme.of(context).textTheme.bodyMedium,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: Text(
+                              'Could not load reminders: ${snapshot.error}',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: AppColors.error),
+                            ),
                           ),
                         );
                       }
@@ -241,7 +356,7 @@ class AllMedicinesScreen extends StatelessWidget {
                         );
                       }
 
-                      final docs = snapshot.data.docs;
+                      final docs = snapshot.data;
                       if (docs.isEmpty) {
                         return _EmptyReminders(
                           onAdd: () => showMedicineSheet(context),

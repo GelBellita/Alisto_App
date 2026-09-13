@@ -52,9 +52,7 @@ class _HomeHeader extends StatelessWidget {
       stream: FirestoreService.userProfileStream(),
       builder: (context, snapshot) {
         final data = snapshot.data?.data() as Map<String, dynamic>?;
-        // 'name' is the legacy field from accounts created before the
-        // signup form was changed to Full Name.
-        final name = (data?['fullName'] ?? data?['name'] ?? '').toString();
+        final name = (data?['full_name'] ?? '').toString();
         final photo = data?['photoBase64'] as String?;
         final firstName = name.trim().isEmpty
             ? ''
@@ -115,12 +113,9 @@ class _DeviceStatusCard extends StatelessWidget {
           builder: (context, profileSnapshot) {
             final profile =
                 profileSnapshot.data?.data() as Map<String, dynamic>?;
-            final personalInfo =
-                profile?['personalInfo'] as Map<String, dynamic>?;
-            final ownerPhone =
-                (personalInfo?['contactNumber'] ?? profile?['phone'] ?? '')
-                    .toString()
-                    .trim();
+            final ownerPhone = (profile?['contact_number'] ?? '')
+                .toString()
+                .trim();
 
             // The device document seeds simNumber with a placeholder dash
             // until the SIM is actually read from the hardware, so show the
@@ -384,6 +379,21 @@ class _MedicineReminderCard extends StatelessWidget {
           StreamBuilder<dynamic>(
             stream: FirestoreService.medicinesStream(),
             builder: (context, snapshot) {
+              // Check hasError BEFORE hasData — a stream that fails (e.g.
+              // missing Firestore composite index, or no device linked
+              // yet) never sets hasData to true, so checking hasData
+              // first meant this card spun forever instead of ever
+              // showing what actually went wrong.
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Could not load reminders: ${snapshot.error}',
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: AppColors.error),
+                  ),
+                );
+              }
               if (!snapshot.hasData) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 12),
@@ -396,7 +406,7 @@ class _MedicineReminderCard extends StatelessWidget {
                   ),
                 );
               }
-              final docs = snapshot.data.docs;
+              final docs = snapshot.data;
               if (docs.isEmpty) {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),

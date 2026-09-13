@@ -242,7 +242,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 32),
                 AppTextField(
                   label: 'Email',
-                  hint: 'maria@example.com',
                   keyboardType: TextInputType.emailAddress,
                   controller: _emailController,
                 ),
@@ -407,7 +406,7 @@ class _SignupScreenState extends State<SignupScreen> {
     }
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => const RoleSelectionScreen()),
+      MaterialPageRoute(builder: (context) => const DeviceChoiceScreen()),
     );
   }
 
@@ -451,21 +450,18 @@ class _SignupScreenState extends State<SignupScreen> {
                 const SizedBox(height: 24),
                 AppTextField(
                   label: 'Full Name',
-                  hint: 'Maria Santos',
                   keyboardType: TextInputType.name,
                   controller: _fullNameController,
                 ),
                 const SizedBox(height: 14),
                 AppTextField(
                   label: 'Email',
-                  hint: 'maria@example.com',
                   keyboardType: TextInputType.emailAddress,
                   controller: _emailController,
                 ),
                 const SizedBox(height: 14),
                 AppTextField(
                   label: 'Phone Number',
-                  hint: '0917 123 4567',
                   keyboardType: TextInputType.phone,
                   controller: _phoneController,
                 ),
@@ -579,28 +575,23 @@ class _SignupScreenState extends State<SignupScreen> {
 }
 
 // =========================================================
-// ROLE SELECTION SCREEN
+// DEVICE CHOICE SCREEN
+// This app only ever creates "family" accounts (role is fixed at
+// signup) — the only choice left is whether this account is setting up
+// a brand-new device or joining one someone else already registered.
 // =========================================================
-class RoleSelectionScreen extends StatefulWidget {
-  const RoleSelectionScreen({super.key});
+class DeviceChoiceScreen extends StatefulWidget {
+  const DeviceChoiceScreen({super.key});
 
   @override
-  State<RoleSelectionScreen> createState() => _RoleSelectionScreenState();
+  State<DeviceChoiceScreen> createState() => _DeviceChoiceScreenState();
 }
 
-class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
+class _DeviceChoiceScreenState extends State<DeviceChoiceScreen> {
   int _selected = 0;
-  bool _loading = false;
 
-  Future<void> _handleContinue() async {
-    setState(() => _loading = true);
-    final role = _selected == 0 ? 'device_owner' : 'contact';
-    await FirestoreService.setRole(role);
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    if (role == 'device_owner') {
-      // Device owners still need to register their Alisto device.
+  void _handleContinue() {
+    if (_selected == 0) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -608,11 +599,9 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
         ),
       );
     } else {
-      // Contacts skip device registration entirely.
-      Navigator.pushAndRemoveUntil(
+      Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const MainNavScreen()),
-        (route) => false,
+        MaterialPageRoute(builder: (context) => const LinkDeviceScreen()),
       );
     }
   }
@@ -631,36 +620,33 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
               children: [
                 const SizedBox(height: 12),
                 Text(
-                  'Choose Your Role',
+                  'Set Up Your Device',
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Who is this account for?',
+                  'Are you registering a new Alisto device, or joining one '
+                  'a family member already set up?',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 32),
                 _RoleCard(
                   icon: Icons.home_rounded,
-                  title: 'I have an Alisto device',
-                  subtitle: 'I will set up and manage the device.',
+                  title: 'Register a new device',
+                  subtitle: 'I have an Alisto device to set up.',
                   selected: _selected == 0,
                   onTap: () => setState(() => _selected = 0),
                 ),
                 const SizedBox(height: 16),
                 _RoleCard(
                   icon: Icons.person_rounded,
-                  title: 'I was added as contact',
-                  subtitle: 'I will receive alerts and stay informed.',
+                  title: 'Join an existing device',
+                  subtitle: 'A family member already registered it.',
                   selected: _selected == 1,
                   onTap: () => setState(() => _selected = 1),
                 ),
                 const Spacer(),
-                PrimaryButton(
-                  label: 'Continue',
-                  loading: _loading,
-                  onPressed: _handleContinue,
-                ),
+                PrimaryButton(label: 'Continue', onPressed: _handleContinue),
                 const SizedBox(height: 24),
               ],
             ),
@@ -743,9 +729,10 @@ class _RoleCard extends StatelessWidget {
 // ROUTING GATE — decides where a just-logged-in user should land
 // =========================================================
 /// Used right after login to route the user to the correct place
-/// (role selection / device registration / dashboard) based on what's
-/// already saved in Firestore. See main.dart's AuthGate for the same
-/// logic applied automatically on app startup.
+/// (device choice / registration / dashboard) based on what's already
+/// saved in Firestore. main.dart's AuthGate delegates straight to this
+/// widget once a Firebase Auth session exists, so this is the single
+/// source of truth for both post-login and app-startup routing.
 class AuthRoutingGate extends StatelessWidget {
   const AuthRoutingGate({super.key});
 
@@ -759,16 +746,8 @@ class AuthRoutingGate extends StatelessWidget {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        final data = snapshot.data?.data() as Map<String, dynamic>?;
-        final role = data?['role'];
-
-        if (role == null) {
-          return const RoleSelectionScreen();
-        }
-        if (role == 'contact') {
-          return const MainNavScreen();
-        }
-        // role == 'device_owner' -> check if device already registered
+        // Every account is a "family" account now — the only remaining
+        // question is whether it's linked to an elder/device yet.
         return FutureBuilder<bool>(
           future: FirestoreService.hasDevice(),
           builder: (context, deviceSnapshot) {
@@ -779,7 +758,7 @@ class AuthRoutingGate extends StatelessWidget {
             }
             return deviceSnapshot.data!
                 ? const MainNavScreen()
-                : const RegisterDeviceStep1Screen();
+                : const DeviceChoiceScreen();
           },
         );
       },

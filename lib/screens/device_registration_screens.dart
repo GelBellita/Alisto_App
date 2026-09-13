@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../services/firestore_service.dart';
 import 'main_nav_screen.dart';
+import 'wifi_setup_screen.dart';
 
 // =========================================================
 // STEP 1: SCAN / ENTER SERIAL
@@ -39,7 +40,7 @@ class _RegisterDeviceStep1ScreenState extends State<RegisterDeviceStep1Screen> {
       context,
       MaterialPageRoute(
         builder: (context) =>
-            PersonalInfoScreen(serial: _serialController.text.trim()),
+            WifiSetupScreen(serial: _serialController.text.trim()),
       ),
     );
   }
@@ -83,7 +84,6 @@ class _RegisterDeviceStep1ScreenState extends State<RegisterDeviceStep1Screen> {
                   controller: _serialController,
                   onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
-                    hintText: '2026-0718ALISTO09X3',
                     suffixIcon: Icon(
                       Icons.qr_code_scanner_rounded,
                       color: AppColors.primary,
@@ -92,6 +92,139 @@ class _RegisterDeviceStep1ScreenState extends State<RegisterDeviceStep1Screen> {
                 ),
                 const SizedBox(height: 24),
                 PrimaryButton(label: 'Continue', onPressed: _handleContinue),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =========================================================
+// LINK TO EXISTING DEVICE  (for "contact" role accounts)
+// =========================================================
+/// Lets a family member who was added as a "contact" (not the device
+/// owner) join the elder/device someone else already registered, by
+/// entering that device's serial number. Unlike RegisterDeviceStep1Screen,
+/// this does NOT create a new elder_profile — see
+/// FirestoreService.linkToExistingDevice.
+class LinkDeviceScreen extends StatefulWidget {
+  const LinkDeviceScreen({super.key});
+
+  @override
+  State<LinkDeviceScreen> createState() => _LinkDeviceScreenState();
+}
+
+class _LinkDeviceScreenState extends State<LinkDeviceScreen> {
+  final _serialController = TextEditingController();
+  final _relationshipController = TextEditingController();
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _serialController.dispose();
+    _relationshipController.dispose();
+    super.dispose();
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
+    );
+  }
+
+  Future<void> _handleLink() async {
+    final serial = _serialController.text.trim();
+    final relationship = _relationshipController.text.trim();
+    if (serial.isEmpty) {
+      _showError('Please enter the device serial number.');
+      return;
+    }
+    if (relationship.isEmpty) {
+      _showError('Please specify your relationship to the elder.');
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      await FirestoreService.linkToExistingDevice(
+        serial: serial,
+        relationship: relationship,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showError(
+        e is StateError
+            ? e.message
+            : 'Could not link that device. Please try again.',
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _loading = false);
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const MainNavScreen()),
+      (route) => false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: const MinimalBackAppBar(),
+      body: SafeArea(
+        top: false,
+        child: ResponsiveContent(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  'Link Your Device',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Ask the device owner for the Alisto serial number, found '
+                  'at the bottom of the device, then enter it below to see '
+                  'the same alerts and reminders they do.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 24),
+                Center(
+                  child: DeviceStickerPreview(
+                    serial: _serialController.text.trim(),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: _serialController,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    suffixIcon: Icon(
+                      Icons.qr_code_scanner_rounded,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                AppTextField(
+                  label: 'Relationship to Elder',
+                  controller: _relationshipController,
+                ),
+                const SizedBox(height: 24),
+                PrimaryButton(
+                  label: 'Link Device',
+                  loading: _loading,
+                  onPressed: _handleLink,
+                ),
                 const SizedBox(height: 20),
               ],
             ),
@@ -115,22 +248,36 @@ class PersonalInfoScreen extends StatefulWidget {
 
 class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   String _selectedSex = 'Female';
+  DateTime? _selectedDob;
   final _nameController = TextEditingController();
-  final _ageController = TextEditingController();
-  final _contactController = TextEditingController();
 
   @override
   void dispose() {
     _nameController.dispose();
-    _ageController.dispose();
-    _contactController.dispose();
     super.dispose();
   }
 
+  Future<void> _pickDob() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(now.year - 65, now.month, now.day),
+      firstDate: DateTime(now.year - 120),
+      lastDate: now,
+      helpText: 'Elder\'s date of birth',
+    );
+    if (picked != null) {
+      setState(() => _selectedDob = picked);
+    }
+  }
+
+  String get _dobLabel {
+    if (_selectedDob == null) return 'Select date of birth';
+    return '${_selectedDob!.year}-${_selectedDob!.month.toString().padLeft(2, '0')}-${_selectedDob!.day.toString().padLeft(2, '0')}';
+  }
+
   void _handleContinue() {
-    if (_nameController.text.trim().isEmpty ||
-        _ageController.text.trim().isEmpty ||
-        _contactController.text.trim().isEmpty) {
+    if (_nameController.text.trim().isEmpty || _selectedDob == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please fill in all fields.'),
@@ -144,10 +291,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
       MaterialPageRoute(
         builder: (context) => SetHomeAddressScreen(
           serial: widget.serial,
-          name: _nameController.text.trim(),
-          age: _ageController.text.trim(),
-          sex: _selectedSex,
-          contactNumber: _contactController.text.trim(),
+          elderFullName: _nameController.text.trim(),
+          elderDob: _dobLabel,
+          elderSex: _selectedSex,
         ),
       ),
     );
@@ -167,7 +313,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
               children: [
                 const SizedBox(height: 8),
                 Text(
-                  'Personal Information',
+                  'Elder\'s Personal Information',
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 12),
@@ -186,7 +332,6 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                 const SizedBox(height: 20),
                 AppTextField(
                   label: 'Name',
-                  hint: 'Maria Santos',
                   controller: _nameController,
                 ),
                 const SizedBox(height: 14),
@@ -194,11 +339,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: AppTextField(
-                        label: 'Age',
-                        hint: '65',
-                        keyboardType: TextInputType.number,
-                        controller: _ageController,
+                      child: _DobPickerField(
+                        label: _dobLabel,
+                        onTap: _pickDob,
                       ),
                     ),
                     const SizedBox(width: 14),
@@ -212,13 +355,6 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                AppTextField(
-                  label: 'Contact Number',
-                  hint: '0917 123 4567',
-                  keyboardType: TextInputType.phone,
-                  controller: _contactController,
-                ),
                 const SizedBox(height: 24),
                 PrimaryButton(label: 'Continue', onPressed: _handleContinue),
                 const SizedBox(height: 20),
@@ -227,6 +363,33 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DobPickerField extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _DobPickerField({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Date of Birth', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              suffixIcon: Icon(Icons.calendar_today_rounded, size: 18),
+            ),
+            child: Text(label, style: const TextStyle(fontSize: 14)),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -263,18 +426,18 @@ class _SexDropdownField extends StatelessWidget {
 class SetHomeAddressScreen extends StatefulWidget {
   final String serial;
   final String name;
-  final String age;
+  final String dob;
   final String sex;
-  final String contactNumber;
 
   const SetHomeAddressScreen({
     super.key,
     required this.serial,
-    required this.name,
-    required this.age,
-    required this.sex,
-    required this.contactNumber,
-  });
+    required String elderFullName,
+    required String elderDob,
+    required String elderSex,
+  }) : name = elderFullName,
+       dob = elderDob,
+       sex = elderSex;
 
   @override
   State<SetHomeAddressScreen> createState() => _SetHomeAddressScreenState();
@@ -287,6 +450,7 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
   final _streetController = TextEditingController();
   final _barangayController = TextEditingController();
   final _cityController = TextEditingController();
+  final _provinceController = TextEditingController();
 
   @override
   void dispose() {
@@ -295,6 +459,7 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
     _streetController.dispose();
     _barangayController.dispose();
     _cityController.dispose();
+    _provinceController.dispose();
     super.dispose();
   }
 
@@ -311,28 +476,32 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
       return;
     }
 
+    // Joined into a single string — matches how app.py's
+    // _create_account_and_elder builds the elder_profile's address field.
+    final address = [
+      _houseController.text.trim(),
+      _streetController.text.trim(),
+      _barangayController.text.trim(),
+      _cityController.text.trim(),
+      _provinceController.text.trim(),
+      _zipController.text.trim(),
+    ].where((part) => part.isNotEmpty).join(', ');
+
     setState(() => _loading = true);
     try {
-      await FirestoreService.savePersonalInfo(
-        fullName: widget.name, // was: name: widget.name
-        age: widget.age,
-        sex: widget.sex,
-        contactNumber: widget.contactNumber,
+      await FirestoreService.registerDevice(
+        serial: widget.serial,
+        elderFullName: widget.name,
+        elderDob: widget.dob,
+        elderSex: widget.sex,
+        address: address,
       );
-      await FirestoreService.saveAddress(
-        houseNo: _houseController.text.trim(),
-        zip: _zipController.text.trim(),
-        street: _streetController.text.trim(),
-        barangay: _barangayController.text.trim(),
-        city: _cityController.text.trim(),
-      );
-      await FirestoreService.registerDevice(serial: widget.serial);
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Something went wrong: $e'),
+          content: Text(e is StateError ? e.message : 'Something went wrong: $e'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -389,7 +558,6 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
                     Expanded(
                       child: AppTextField(
                         label: 'House / Unit No.',
-                        hint: '123',
                         controller: _houseController,
                       ),
                     ),
@@ -397,7 +565,6 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
                     Expanded(
                       child: AppTextField(
                         label: 'Zip Code',
-                        hint: '6000',
                         keyboardType: TextInputType.number,
                         controller: _zipController,
                       ),
@@ -407,7 +574,6 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
                 const SizedBox(height: 14),
                 AppTextField(
                   label: 'Street / Purok',
-                  hint: 'Purok 4, Labangon',
                   controller: _streetController,
                 ),
                 const SizedBox(height: 14),
@@ -417,7 +583,6 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
                     Expanded(
                       child: AppTextField(
                         label: 'Barangay',
-                        hint: 'Labangon',
                         controller: _barangayController,
                       ),
                     ),
@@ -425,11 +590,15 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
                     Expanded(
                       child: AppTextField(
                         label: 'City',
-                        hint: 'Cebu City',
                         controller: _cityController,
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 14),
+                AppTextField(
+                  label: 'Province',
+                  controller: _provinceController,
                 ),
                 const SizedBox(height: 24),
                 PrimaryButton(

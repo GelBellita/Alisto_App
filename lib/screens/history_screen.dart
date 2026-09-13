@@ -42,13 +42,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
               StreamBuilder<dynamic>(
                 stream: FirestoreService.alertsStream(),
                 builder: (context, snapshot) {
+                  // IMPORTANT: check hasError BEFORE hasData. A stream that
+                  // fails (e.g. no device linked yet) never sets hasData to
+                  // true, so checking hasData first meant this spun forever
+                  // instead of ever showing the real problem.
+                  if (snapshot.hasError) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 40),
+                      child: Center(
+                        child: Text(
+                          'No device is linked to this account yet.\n'
+                          'Please finish device registration or linking first.',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                    );
+                  }
                   if (!snapshot.hasData) {
                     return const Padding(
                       padding: EdgeInsets.symmetric(vertical: 40),
                       child: Center(child: CircularProgressIndicator()),
                     );
                   }
-                  var docs = snapshot.data.docs;
+                  var docs = snapshot.data;
                   var alerts = docs
                       .map<AlertModel>((d) => AlertModel.fromDoc(d))
                       .toList();
