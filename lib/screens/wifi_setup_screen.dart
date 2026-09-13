@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -41,8 +42,15 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   bool? _lastAttemptSucceeded;
 
   // Default gateway IP while the Pi is broadcasting its own hotspot.
-  // Confirm with `nmcli device show wlan0` on the Pi if this ever differs.
-  static const String _piSetupUrl = 'http://192.168.4.1:5000/connect-wifi';
+  // CLAUDE'S FIX: this was 192.168.4.1 (the typical hostapd default), but
+  // `nmcli device wifi hotspot` (what the Pi's start_setup_hotspot.sh
+  // actually uses) assigns 10.42.0.1 by default -- confirmed directly on
+  // the real device via `ip addr show wlan0`. The mismatch meant every
+  // request from the app was going to an address the phone couldn't even
+  // route to on the "Alisto-Setup" network, which is why it always failed
+  // with "Could not reach Alisto" no matter how many times it was retried.
+  // Confirm with `ip addr show wlan0` on the Pi if this ever changes.
+  static const String _piSetupUrl = 'http://10.42.0.1:5000/connect-wifi';
 
   @override
   void dispose() {
@@ -92,7 +100,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
           _lastAttemptSucceeded = success;
           _statusMessage = success
               ? 'Success! Alisto is connecting to "$ssid". You can now '
-                  'reconnect your phone to your normal WiFi and continue.'
+                    'reconnect your phone to your normal WiFi and continue.'
               : (data['message'] ??
                     'Alisto could not connect. Please check the WiFi name '
                         'and password and try again.');
