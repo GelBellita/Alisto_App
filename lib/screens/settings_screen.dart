@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
+import 'personal_information_screen.dart';
 
 // Note: these toggles are local UI state only for now — wiring them to
 // Firestore (e.g. users/{uid}.notificationSettings) is a simple follow-up
@@ -99,7 +100,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: Accent.blue,
                 title: 'Change Password',
                 subtitle: 'Update your account password',
-                onTap: () {},
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ChangePasswordScreen(),
+                  ),
+                ),
               ),
             ],
           ),

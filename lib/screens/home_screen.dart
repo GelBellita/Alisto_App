@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -105,7 +108,6 @@ class _DeviceStatusCard extends StatelessWidget {
       builder: (context, deviceSnapshot) {
         final device = deviceSnapshot.data?.data() as Map<String, dynamic>?;
         final status = device?['status'] ?? 'Offline';
-        final gps = device?['gps'] ?? '—';
         final deviceSim = (device?['simNumber'] ?? '').toString().trim();
 
         return StreamBuilder<dynamic>(
@@ -177,14 +179,7 @@ class _DeviceStatusCard extends StatelessWidget {
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      Expanded(
-                        child: _StatTile(
-                          icon: Icons.location_on_rounded,
-                          color: Accent.purple,
-                          label: 'GPS',
-                          value: gps,
-                        ),
-                      ),
+                      const Expanded(child: _GpsTile()),
                       const SizedBox(width: 10),
                       const Expanded(child: _LastAlertTile()),
                     ],
@@ -238,6 +233,54 @@ class _LastAlertTile extends StatelessWidget {
         return 'System';
     }
   }
+}
+
+/// Most recent GPS ping written to `DEVICE_LOCATION` by the Raspberry
+/// Pi/Flask server — mirrors the web dashboard's "Last Known Location"
+/// panel. Tapping opens the full location screen (address, coordinates,
+/// map) — same idea as the web's "View on Map" button.
+class _GpsTile extends StatelessWidget {
+  const _GpsTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<LocationModel?>(
+      stream: FirestoreService.latestLocationStream(),
+      builder: (context, snapshot) {
+        final location = snapshot.data;
+        final hasAddress = location != null && location.address.isNotEmpty;
+
+        return InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const DeviceLocationScreen(),
+            ),
+          ),
+          child: _StatTile(
+            icon: Icons.location_on_rounded,
+            color: Accent.purple,
+            label: 'GPS',
+            value: hasAddress ? location.address : 'Waiting for signal',
+            subValue: _relativeTime(location?.recordedAt),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Turns a timestamp into a short "Xm ago" / "Xh ago" label. Returns an
+/// empty string (so the caller's subValue row just doesn't render) when
+/// there's nothing to show yet.
+String _relativeTime(DateTime? time) {
+  if (time == null) return '';
+  final diff = DateTime.now().difference(time);
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  return '${diff.inDays}d ago';
 }
 
 class _StatTile extends StatelessWidget {
@@ -554,15 +597,12 @@ class _QuickActionsRow extends StatelessWidget {
             icon: Icons.gps_fixed_rounded,
             title: 'Find Alisto',
             subtitle: 'View the current location of the Alisto device',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Live location comes from the device once it starts sending GPS updates.',
-                  ),
-                ),
-              );
-            },
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const DeviceLocationScreen(),
+              ),
+            ),
           ),
         ),
       ],
@@ -619,6 +659,255 @@ class _QuickActionCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+// ---------------------------------------------------------
+// DEVICE LOCATION — full-screen equivalent of the web dashboard's
+// "Last Known Location" panel + its "View on Map" modal, combined.
+// Reads the same DEVICE_LOCATION data via
+// FirestoreService.latestLocationStream().
+// ---------------------------------------------------------
+class DeviceLocationScreen extends StatelessWidget {
+  const DeviceLocationScreen({super.key});
+
+  void _copy(BuildContext context, String value, String label) {
+    Clipboard.setData(ClipboardData(text: value));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$label copied')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: const MinimalBackAppBar(),
+      body: SafeArea(
+        top: false,
+        child: ResponsiveContent(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  'Device Location',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'The last GPS position reported by the Alisto device.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 20),
+                StreamBuilder<LocationModel?>(
+                  stream: FirestoreService.latestLocationStream(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData && snapshot.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 60),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+
+                    final location = snapshot.data;
+                    if (location == null || location.address.isEmpty) {
+                      return AppCard(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.location_off_rounded,
+                              size: 32,
+                              color: AppColors.textSecondary,
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'No location reported yet',
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontSize: 14),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'This device hasn\'t sent a GPS update yet. '
+                              'Location appears here once it does.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (location.hasCoordinates)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: SizedBox(
+                              height: 220,
+                              width: double.infinity,
+                              child: FlutterMap(
+                                options: MapOptions(
+                                  initialCenter: LatLng(
+                                    location.latitude!,
+                                    location.longitude!,
+                                  ),
+                                  initialZoom: 16,
+                                  interactionOptions: const InteractionOptions(
+                                    flags: InteractiveFlag.pinchZoom |
+                                        InteractiveFlag.drag,
+                                  ),
+                                ),
+                                children: [
+                                  TileLayer(
+                                    urlTemplate:
+                                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                    userAgentPackageName: 'com.alisto.app',
+                                  ),
+                                  MarkerLayer(
+                                    markers: [
+                                      Marker(
+                                        point: LatLng(
+                                          location.latitude!,
+                                          location.longitude!,
+                                        ),
+                                        width: 40,
+                                        height: 40,
+                                        child: const Icon(
+                                          Icons.location_on_rounded,
+                                          color: AppColors.error,
+                                          size: 36,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const RichAttributionWidget(
+                                    attributions: [
+                                      TextSourceAttribution(
+                                        'OpenStreetMap contributors',
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                        AppCard(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _LocationDetailRow(
+                                icon: Icons.location_on_rounded,
+                                label: 'Address',
+                                value: location.address,
+                                onCopy: () => _copy(
+                                  context,
+                                  location.address,
+                                  'Address',
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              _LocationDetailRow(
+                                icon: Icons.access_time_rounded,
+                                label: 'Last Updated',
+                                value: location.recordedAt == null
+                                    ? 'Unknown'
+                                    : '${_relativeTime(location.recordedAt)} '
+                                          '(${location.recordedAt})',
+                              ),
+                              if (location.hasCoordinates) ...[
+                                const SizedBox(height: 12),
+                                _LocationDetailRow(
+                                  icon: Icons.my_location_rounded,
+                                  label: 'Coordinates',
+                                  value:
+                                      '${location.latitude!.toStringAsFixed(6)}, '
+                                      '${location.longitude!.toStringAsFixed(6)}',
+                                  onCopy: () => _copy(
+                                    context,
+                                    '${location.latitude}, ${location.longitude}',
+                                    'Coordinates',
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationDetailRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback? onCopy;
+  const _LocationDetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.onCopy,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: AppColors.textSecondary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (onCopy != null)
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: onCopy,
+            child: const Padding(
+              padding: EdgeInsets.all(4),
+              child: Icon(
+                Icons.copy_rounded,
+                size: 15,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

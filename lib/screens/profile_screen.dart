@@ -12,6 +12,7 @@ import 'settings_screen.dart';
 import 'auth_screens.dart';
 import 'help_support_screen.dart';
 import 'legal_screens.dart';
+import 'personal_information_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -57,11 +58,17 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: 14),
               const _ProfileHeaderCard(),
               const SizedBox(height: 18),
-              const _ProfileNavTile(
+              _ProfileNavTile(
                 icon: Icons.person_rounded,
                 color: Accent.purple,
                 title: 'Personal Information',
                 subtitle: 'View and manage your personal details',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const PersonalInformationScreen(),
+                  ),
+                ),
               ),
               const SizedBox(height: 10),
               const _ProfileNavTile(
@@ -280,25 +287,27 @@ class _ProfileHeaderCardState extends State<_ProfileHeaderCard> {
       stream: FirestoreService.userProfileStream(),
       builder: (context, snapshot) {
         final data = snapshot.data?.data() as Map<String, dynamic>?;
-        // 'name' is the legacy field from accounts created before the
-        // signup form was changed to Full Name.
-        final name = (data?['fullName'] ?? data?['name'] ?? '—').toString();
+        // Matches FirestoreService.createUserProfile()'s field names
+        // exactly (full_name / contact_number / role: 'family'). The old
+        // fallbacks (fullName, phone, personalInfo.contactNumber,
+        // device_owner/contact roles) were from a camelCase schema this
+        // app no longer writes, which is why every field but email was
+        // showing '—'.
+        final name = (data?['full_name'] ?? '—').toString();
         final photo = data?['photoBase64'] as String?;
         final email = (data?['email'] ?? '').toString();
-        final personalInfo =
-            data?['personalInfo'] as Map<String, dynamic>? ?? {};
-        final address = data?['address'] as Map<String, dynamic>? ?? {};
-        final age = personalInfo['age'] ?? '';
-        final contactNumber =
-            personalInfo['contactNumber'] ?? data?['phone'] ?? '—';
-        final role = data?['role'] == 'device_owner'
-            ? 'Device User'
-            : (data?['role'] == 'contact' ? 'Contact' : '—');
+        final contactNumber = (data?['contact_number'] ?? '—').toString();
+        final roleRaw = (data?['role'] ?? '').toString();
+        final role = roleRaw.isEmpty
+            ? '—'
+            : roleRaw[0].toUpperCase() + roleRaw.substring(1);
 
-        final addressLine = [
-          address['barangay'],
-          address['city'],
-        ].where((s) => s != null && s.toString().isNotEmpty).join(', ');
+        // Age/address aren't stored on user_account at all — those belong
+        // to elder_profile (the loved one's record, not the account
+        // holder's). Left blank here; wire up a real elder lookup if this
+        // card should show them.
+        const age = '';
+        const addressLine = '';
 
         return AppCard(
           color: AppColors.primary.withOpacity(0.07),

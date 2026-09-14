@@ -86,3 +86,36 @@ class AlertModel {
     );
   }
 }
+
+/// A single ping from the `DEVICE_LOCATION` collection — the same
+/// collection app.py reads for the web dashboard's "Last Known Location"
+/// panel. Written by the Raspberry Pi/Flask server, keyed by device_id
+/// (the device's serial number), not elder_id.
+class LocationModel {
+  final String address;
+  final double? latitude;
+  final double? longitude;
+  final DateTime? recordedAt;
+
+  LocationModel({
+    required this.address,
+    this.latitude,
+    this.longitude,
+    this.recordedAt,
+  });
+
+  factory LocationModel.fromDoc(QueryDocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final recordedAtField = data['recorded_at'];
+    return LocationModel(
+      address: (data['location_address'] ?? '').toString(),
+      latitude: (data['gps_lat'] as num?)?.toDouble(),
+      longitude: (data['gps_long'] as num?)?.toDouble(),
+      recordedAt: recordedAtField is Timestamp
+          ? recordedAtField.toDate()
+          : null,
+    );
+  }
+
+  bool get hasCoordinates => latitude != null && longitude != null;
+}

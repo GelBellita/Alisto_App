@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
 
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../services/firestore_service.dart';
 import 'main_nav_screen.dart';
-import 'wifi_setup_screen.dart';
+import 'qr_scanner_screen.dart';
 
 // =========================================================
 // STEP 1: SCAN / ENTER SERIAL
@@ -19,6 +20,7 @@ class RegisterDeviceStep1Screen extends StatefulWidget {
 
 class _RegisterDeviceStep1ScreenState extends State<RegisterDeviceStep1Screen> {
   final _serialController = TextEditingController();
+  bool _checking = false;
 
   @override
   void dispose() {
@@ -26,21 +28,87 @@ class _RegisterDeviceStep1ScreenState extends State<RegisterDeviceStep1Screen> {
     super.dispose();
   }
 
-  void _handleContinue() {
-    if (_serialController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter your device serial number.'),
-          backgroundColor: AppColors.error,
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
+    );
+  }
+
+  Future<void> _scanQrCode() async {
+    final scanned = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (context) => const QrScannerScreen()),
+    );
+    if (scanned == null || !mounted) return;
+    setState(() => _serialController.text = scanned);
+    // Go straight into validation once a code is scanned — no need to
+    // make the user tap Continue separately after scanning.
+    _handleContinue();
+  }
+
+  /// Validates the serial RIGHT HERE — against Firestore's `device`
+  /// collection — before letting the user proceed. Previously this check
+  /// only happened at the very end (final submit on the address screen),
+  /// so a typo could slip through three more screens before the user
+  /// found out the device didn't exist. Now it's caught immediately,
+  /// whether the serial was typed or scanned via QR.
+  Future<void> _handleContinue() async {
+    final serial = _serialController.text.trim();
+    if (serial.isEmpty) {
+      _showError('Please enter your device serial number.');
+      return;
+    }
+
+    setState(() => _checking = true);
+    DeviceCheckResult result;
+    try {
+      result = await FirestoreService.checkDevice(serial);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _checking = false);
+      _showError('Could not check the device right now. Please try again.');
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _checking = false);
+
+    if (!result.exists) {
+      _showError(result.message);
+      return;
+    }
+
+    // Someone already claimed this device — send the user into the "join"
+    // flow (pre-filled with the elder's name, no duplicate elder_profile)
+    // instead of asking for fresh elder info that would just be discarded.
+    // Mirrors app.py's /check_device + auth.js's applyJoinMode() on web.
+    if (result.alreadyRegistered) {
+      if (!result.canJoin) {
+        _showError(result.message);
+        return;
+      }
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => JoinExistingElderScreen(
+            serial: serial,
+            elderFullName: result.elderFullName,
+            elderDob: result.elderDob,
+            elderAddress: result.elderAddress,
+            elderSex: result.elderSex,
+            elderData: result.elderData,
+            deviceData: result.deviceData,
+            familyCount: result.familyCount,
+            familyLimit: result.familyLimit,
+          ),
         ),
       );
       return;
     }
+
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            WifiSetupScreen(serial: _serialController.text.trim()),
+        builder: (context) => PersonalInfoScreen(serial: serial),
       ),
     );
   }
@@ -64,8 +132,8 @@ class _RegisterDeviceStep1ScreenState extends State<RegisterDeviceStep1Screen> {
                 ),
                 const SizedBox(height: 12),
                 const RegisterDeviceStepIndicator(
-                  currentStep: 1,
-                  totalSteps: 3,
+                  currentStep: 2,
+                  totalSteps: 4,
                 ),
                 const SizedBox(height: 24),
                 Center(
@@ -75,7 +143,7 @@ class _RegisterDeviceStep1ScreenState extends State<RegisterDeviceStep1Screen> {
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  'Enter the unique serial number found at the bottom of your ALISTO device.',
+                  'Enter the unique serial number found at the bottom of your ALISTO device, or scan its QR code.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
@@ -83,15 +151,22 @@ class _RegisterDeviceStep1ScreenState extends State<RegisterDeviceStep1Screen> {
                 TextField(
                   controller: _serialController,
                   onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    suffixIcon: Icon(
-                      Icons.qr_code_scanner_rounded,
-                      color: AppColors.primary,
+                  decoration: InputDecoration(
+                    suffixIcon: IconButton(
+                      icon: const Icon(
+                        Icons.qr_code_scanner_rounded,
+                        color: AppColors.primary,
+                      ),
+                      onPressed: _checking ? null : _scanQrCode,
                     ),
                   ),
                 ),
                 const SizedBox(height: 24),
-                PrimaryButton(label: 'Continue', onPressed: _handleContinue),
+                PrimaryButton(
+                  label: 'Continue',
+                  loading: _checking,
+                  onPressed: _handleContinue,
+                ),
                 const SizedBox(height: 20),
               ],
             ),
@@ -133,6 +208,15 @@ class _LinkDeviceScreenState extends State<LinkDeviceScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: AppColors.error),
     );
+  }
+
+  Future<void> _scanQrCode() async {
+    final scanned = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (context) => const QrScannerScreen()),
+    );
+    if (scanned == null || !mounted) return;
+    setState(() => _serialController.text = scanned);
   }
 
   Future<void> _handleLink() async {
@@ -207,10 +291,13 @@ class _LinkDeviceScreenState extends State<LinkDeviceScreen> {
                 TextField(
                   controller: _serialController,
                   onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    suffixIcon: Icon(
-                      Icons.qr_code_scanner_rounded,
-                      color: AppColors.primary,
+                  decoration: InputDecoration(
+                    suffixIcon: IconButton(
+                      icon: const Icon(
+                        Icons.qr_code_scanner_rounded,
+                        color: AppColors.primary,
+                      ),
+                      onPressed: _loading ? null : _scanQrCode,
                     ),
                   ),
                 ),
@@ -231,6 +318,354 @@ class _LinkDeviceScreenState extends State<LinkDeviceScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// =========================================================
+// AUTO-JOIN — shown when the scanned/typed serial already belongs to
+// someone else's elder
+// =========================================================
+/// Reached automatically from RegisterDeviceStep1Screen when
+/// FirestoreService.checkDevice() reports the device is already claimed.
+/// The elder's name is already on file (fetched from `elder_profile`), so
+/// this screen only asks for the user's relationship to them, then links
+/// the account the same way LinkDeviceScreen does — no new elder_profile
+/// is created, and the serial never has to be re-typed.
+class JoinExistingElderScreen extends StatefulWidget {
+  final String serial;
+  final String? elderFullName;
+  final String? elderDob;
+  final String? elderAddress;
+  final String? elderSex;
+  final Map<String, dynamic>? elderData;
+  final Map<String, dynamic>? deviceData;
+  final int familyCount;
+  final int familyLimit;
+
+  const JoinExistingElderScreen({
+    super.key,
+    required this.serial,
+    required this.elderFullName,
+    this.elderDob,
+    this.elderAddress,
+    this.elderSex,
+    this.elderData,
+    this.deviceData,
+    required this.familyCount,
+    required this.familyLimit,
+  });
+
+  @override
+  State<JoinExistingElderScreen> createState() =>
+      _JoinExistingElderScreenState();
+}
+
+class _JoinExistingElderScreenState extends State<JoinExistingElderScreen> {
+  final _relationshipController = TextEditingController();
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _relationshipController.dispose();
+    super.dispose();
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
+    );
+  }
+
+  Future<void> _handleJoin() async {
+    final relationship = _relationshipController.text.trim();
+    if (relationship.isEmpty) {
+      _showError('Please specify your relationship to the elder.');
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      await FirestoreService.linkToExistingDevice(
+        serial: widget.serial,
+        relationship: relationship,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showError(
+        e is StateError
+            ? e.message
+            : 'Could not link that device. Please try again.',
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _loading = false);
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const MainNavScreen()),
+      (route) => false,
+    );
+  }
+
+  String get _initials {
+    final name = widget.elderFullName?.trim() ?? '';
+    if (name.isEmpty) return '?';
+    final parts = name.split(RegExp(r'\s+'));
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return (parts.first[0] + parts.last[0]).toUpperCase();
+  }
+
+  /// Turns a raw Firestore document map into ordered (label, value) pairs
+  /// for display — every field that's actually on the document, not a
+  /// hand-picked subset. [skip] lets the caller hide fields already shown
+  /// elsewhere in the UI (e.g. full_name in the header).
+  List<MapEntry<String, String>> _rowsFor(
+    Map<String, dynamic>? data, {
+    Set<String> skip = const {},
+  }) {
+    if (data == null) return const [];
+    final entries = <MapEntry<String, String>>[];
+    for (final key in data.keys) {
+      if (skip.contains(key)) continue;
+      entries.add(MapEntry(_prettifyKey(key), _formatValue(data[key])));
+    }
+    return entries;
+  }
+
+  String _prettifyKey(String key) {
+    final spaced = key.replaceAll('_', ' ');
+    return spaced
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1))
+        .join(' ');
+  }
+
+  String _formatValue(dynamic value) {
+    if (value == null) return 'Not on file';
+    if (value is Timestamp) return value.toDate().toString();
+    if (value is bool) return value ? 'Yes' : 'No';
+    if (value is List) {
+      return value.isEmpty ? 'Not on file' : value.join(', ');
+    }
+    final text = value.toString().trim();
+    return text.isEmpty ? 'Not on file' : text;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasName = widget.elderFullName?.trim().isNotEmpty ?? false;
+    final name = hasName ? widget.elderFullName!.trim() : 'Unnamed';
+
+    // Everything on the elder_profile doc, minus full_name (already shown
+    // as the header) — this is what makes the card show "everything in
+    // Firebase" instead of a fixed DOB/Sex/Address subset.
+    final elderRows = _rowsFor(widget.elderData, skip: const {'full_name'});
+    // Everything on the device doc too — status, simNumber, gps,
+    // registeredAt, etc. — since that's also "what's in Firebase" for
+    // this serial.
+    final deviceRows = _rowsFor(widget.deviceData);
+
+    return Scaffold(
+      appBar: const MinimalBackAppBar(),
+      body: SafeArea(
+        top: false,
+        child: ResponsiveContent(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  'Join This Device',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'This device is already linked to the elder below. '
+                  'Their details are already on file — just confirm how '
+                  'you are related.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 20),
+                Center(child: DeviceStickerPreview(serial: widget.serial)),
+                const SizedBox(height: 20),
+
+                // ---- Elder profile card — every field on elder_profile,
+                // not just a hand-picked subset. ----
+                AppCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.12),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              _initials,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 18,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 16,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${widget.familyCount} of '
+                                  '${widget.familyLimit} family slots used',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 28),
+                      Text(
+                        'Elder Profile (Firebase)',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontSize: 13),
+                      ),
+                      const SizedBox(height: 10),
+                      if (elderRows.isEmpty)
+                        const _ElderDetailRow(
+                          icon: Icons.info_outline_rounded,
+                          label: 'Profile',
+                          value: null,
+                        )
+                      else
+                        for (int i = 0; i < elderRows.length; i++) ...[
+                          if (i > 0) const SizedBox(height: 10),
+                          _ElderDetailRow(
+                            icon: Icons.circle,
+                            label: elderRows[i].key,
+                            value: elderRows[i].value,
+                          ),
+                        ],
+                    ],
+                  ),
+                ),
+
+                if (deviceRows.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  AppCard(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Device Record (Firebase)',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontSize: 13),
+                        ),
+                        const SizedBox(height: 10),
+                        for (int i = 0; i < deviceRows.length; i++) ...[
+                          if (i > 0) const SizedBox(height: 10),
+                          _ElderDetailRow(
+                            icon: Icons.smartphone_rounded,
+                            label: deviceRows[i].key,
+                            value: deviceRows[i].value,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 20),
+                AppTextField(
+                  label: 'Relationship to Elder',
+                  controller: _relationshipController,
+                ),
+                const SizedBox(height: 24),
+                PrimaryButton(
+                  label: 'Join & Continue',
+                  loading: _loading,
+                  onPressed: _handleJoin,
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ElderDetailRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String? value;
+  const _ElderDetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasValue = value != null && value!.trim().isNotEmpty;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: AppColors.textSecondary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                hasValue ? value!.trim() : 'Not on file',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: hasValue
+                      ? AppColors.textPrimary
+                      : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -318,8 +753,8 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                 ),
                 const SizedBox(height: 12),
                 const RegisterDeviceStepIndicator(
-                  currentStep: 2,
-                  totalSteps: 3,
+                  currentStep: 3,
+                  totalSteps: 4,
                 ),
                 const SizedBox(height: 20),
                 Center(
@@ -537,8 +972,8 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
                 ),
                 const SizedBox(height: 12),
                 const RegisterDeviceStepIndicator(
-                  currentStep: 3,
-                  totalSteps: 3,
+                  currentStep: 4,
+                  totalSteps: 4,
                 ),
                 const SizedBox(height: 20),
                 Center(

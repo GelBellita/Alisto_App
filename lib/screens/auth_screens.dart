@@ -8,6 +8,7 @@ import '../services/firestore_service.dart';
 import 'device_registration_screens.dart';
 import 'legal_screens.dart';
 import 'main_nav_screen.dart';
+import 'wifi_setup_screen.dart';
 
 /// Loose email check — good enough to catch typos before hitting Firebase,
 /// which does the authoritative validation.
@@ -261,7 +262,29 @@ class _LoginScreenState extends State<LoginScreen> {
                         setState(() => _obscurePassword = !_obscurePassword),
                   ),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ForgotPasswordScreen(
+                          initialEmail: _emailController.text.trim(),
+                        ),
+                      ),
+                    ),
+                    child: const Text(
+                      'Forgot password?',
+                      style: TextStyle(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
                 PrimaryButton(
                   label: 'Log in',
                   loading: _loading,
@@ -279,6 +302,144 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =========================================================
+// FORGOT PASSWORD SCREEN — email in, reset link out
+// =========================================================
+class ForgotPasswordScreen extends StatefulWidget {
+  final String initialEmail;
+  const ForgotPasswordScreen({super.key, this.initialEmail = ''});
+
+  @override
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  late final TextEditingController _emailController;
+  bool _loading = false;
+  bool _sent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSend() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !_emailPattern.hasMatch(email)) {
+      _showError('Please enter a valid email address.');
+      return;
+    }
+
+    setState(() => _loading = true);
+    final error = await AuthService.sendPasswordReset(email);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (error != null) {
+      _showError(error);
+      return;
+    }
+    setState(() => _sent = true);
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: const MinimalBackAppBar(),
+      body: SafeArea(
+        top: false,
+        child: ResponsiveContent(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                Center(
+                  child: Icon(
+                    Icons.lock_reset_rounded,
+                    size: context.clampHeight(0.1, min: 64, max: 90),
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Center(
+                  child: Text(
+                    'Reset Password',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Center(
+                  child: Text(
+                    _sent
+                        ? 'Check your inbox for the reset link.'
+                        : "Enter the email on your account and we'll send "
+                              'you a link to reset your password.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                if (_sent)
+                  AppCard(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.mark_email_read_rounded,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'If an account exists for ${_emailController.text.trim()}, '
+                            "you'll get an email shortly with a link to set "
+                            'a new password.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else ...[
+                  AppTextField(
+                    label: 'Email',
+                    keyboardType: TextInputType.emailAddress,
+                    controller: _emailController,
+                  ),
+                  const SizedBox(height: 28),
+                ],
+                const SizedBox(height: 16),
+                PrimaryButton(
+                  label: _sent ? 'Back to Login' : 'Send Reset Link',
+                  loading: _loading,
+                  onPressed: _sent
+                      ? () => Navigator.pop(context)
+                      : _handleSend,
                 ),
                 const SizedBox(height: 24),
               ],
@@ -320,7 +481,11 @@ class _SignupScreenState extends State<SignupScreen> {
     super.initState();
     _termsRecognizer = TapGestureRecognizer()..onTap = () => _openLegal(0);
     _privacyRecognizer = TapGestureRecognizer()..onTap = () => _openLegal(1);
+    // Repaints the live password checklist on every keystroke.
+    _passwordController.addListener(_onPasswordChanged);
   }
+
+  void _onPasswordChanged() => setState(() {});
 
   void _openLegal(int tab) {
     Navigator.push(
@@ -336,6 +501,7 @@ class _SignupScreenState extends State<SignupScreen> {
     _fullNameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
+    _passwordController.removeListener(_onPasswordChanged);
     _passwordController.dispose();
     _confirmController.dispose();
     _termsRecognizer.dispose();
@@ -372,8 +538,8 @@ class _SignupScreenState extends State<SignupScreen> {
     if (phoneDigits.length < 10) {
       return 'Please enter a valid phone number.';
     }
-    if (_passwordController.text.length < 6) {
-      return 'Password should be at least 6 characters.';
+    if (!passwordMeetsRequirements(_passwordController.text)) {
+      return 'Password must meet all the requirements listed below.';
     }
     if (_passwordController.text != _confirmController.text) {
       return 'Passwords do not match.';
@@ -481,7 +647,9 @@ class _SignupScreenState extends State<SignupScreen> {
                         setState(() => _obscurePassword = !_obscurePassword),
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 8),
+                PasswordStrengthChecklist(password: _passwordController.text),
+                const SizedBox(height: 8),
                 AppTextField(
                   label: 'Confirm Password',
                   hint: '••••••••',
@@ -549,7 +717,11 @@ class _SignupScreenState extends State<SignupScreen> {
                 PrimaryButton(
                   label: 'Sign Up',
                   loading: _loading,
-                  onPressed: _handleSignup,
+                  // Disabled (greyed out) until Terms & Conditions is
+                  // checked — the field is required, so there's no reason
+                  // to let the tap happen and then bounce it with an
+                  // error; better to make the invalid state unreachable.
+                  onPressed: _agreeTerms ? _handleSignup : null,
                 ),
                 const SizedBox(height: 16),
                 Center(
@@ -595,7 +767,7 @@ class _DeviceChoiceScreenState extends State<DeviceChoiceScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => const RegisterDeviceStep1Screen(),
+          builder: (context) => const WifiSetupScreen(),
         ),
       );
     } else {

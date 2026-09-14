@@ -83,13 +83,116 @@ class AuthService {
   }
 
   /// Sends a password reset link. Now possible because the account email is
-  /// a real address. Wire this to a "Forgot password?" link when you need it.
+  /// a real address. Wired to the "Forgot password?" link on the login
+  /// screen (see ForgotPasswordScreen in auth_screens.dart).
   static Future<String?> sendPasswordReset(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email.trim());
       return null;
     } on FirebaseAuthException catch (e) {
-      return e.message ?? 'Could not send the reset email.';
+      switch (e.code) {
+        case 'user-not-found':
+          // Deliberately vague — confirming/denying an account exists for
+          // a given email is an account-enumeration risk. Firebase itself
+          // no longer throws this for reset emails on most projects, but
+          // handle it just in case.
+          return 'If an account exists for that email, a reset link has been sent.';
+        case 'invalid-email':
+          return 'That email address looks invalid.';
+        case 'network-request-failed':
+          return 'No internet connection. Please try again.';
+        default:
+          return e.message ?? 'Could not send the reset email.';
+      }
+    }
+  }
+
+  /// Re-authenticates the current user with their existing password —
+  /// Firebase requires a "fresh" sign-in before sensitive account changes
+  /// like updating the password or email address.
+  static Future<String?> _reauthenticate(String currentPassword) async {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null) {
+      return 'No logged-in user found.';
+    }
+    try {
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: currentPassword,
+      );
+      await user.reauthenticateWithCredential(credential);
+      return null;
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'wrong-password':
+        case 'invalid-credential':
+          return 'Your current password is incorrect.';
+        case 'too-many-requests':
+          return 'Too many attempts. Please try again later.';
+        case 'network-request-failed':
+          return 'No internet connection. Please try again.';
+        default:
+          return e.message ?? 'Could not verify your current password.';
+      }
+    }
+  }
+
+  /// Changes the account password. Requires the current password to
+  /// re-authenticate first. Returns null on success, or an error message
+  /// on failure.
+  static Future<String?> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final reauthError = await _reauthenticate(currentPassword);
+    if (reauthError != null) return reauthError;
+
+    try {
+      await _auth.currentUser!.updatePassword(newPassword);
+      return null;
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'weak-password':
+          return 'Password should be at least 6 characters.';
+        case 'requires-recent-login':
+          return 'Please log out and log back in, then try again.';
+        case 'network-request-failed':
+          return 'No internet connection. Please try again.';
+        default:
+          return e.message ?? 'Could not update your password.';
+      }
+    }
+  }
+
+  /// Updates the account email. Sends a verification link to the NEW
+  /// address first (Firebase's recommended flow) rather than switching
+  /// immediately — the new address only becomes the sign-in email once the
+  /// user taps that link, so it can't be swapped in by someone who doesn't
+  /// actually control the new inbox. Requires the current password to
+  /// re-authenticate.
+  static Future<String?> updateEmail({
+    required String currentPassword,
+    required String newEmail,
+  }) async {
+    final reauthError = await _reauthenticate(currentPassword);
+    if (reauthError != null) return reauthError;
+
+    try {
+      await _auth.currentUser!.verifyBeforeUpdateEmail(newEmail.trim());
+      return null;
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'email-already-in-use':
+          return 'An account with this email already exists.';
+        case 'invalid-email':
+          return 'That email address looks invalid.';
+        case 'requires-recent-login':
+          return 'Please log out and log back in, then try again.';
+        case 'network-request-failed':
+          return 'No internet connection. Please try again.';
+        default:
+          return e.message ?? 'Could not update your email.';
+      }
     }
   }
 

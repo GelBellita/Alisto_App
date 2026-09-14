@@ -8,26 +8,27 @@ import '../widgets/common_widgets.dart';
 import 'device_registration_screens.dart';
 
 // =========================================================
-// STEP 2: CONNECT DEVICE TO WIFI
+// STEP 1: CONNECT DEVICE TO WIFI
 // =========================================================
 /// Walks the user through connecting the Alisto device (Raspberry Pi) to
 /// their home WiFi, since the device has no keyboard/screen of its own.
+/// This now runs FIRST in the registration flow, before the serial number
+/// is even asked for — the device needs to be online before anything else
+/// about it makes sense to configure.
 ///
 /// Flow:
 /// 1. User connects their PHONE to the Pi's temporary hotspot ("Alisto-Setup")
 ///    via their phone's normal WiFi settings.
 /// 2. User comes back here and enters their HOME WiFi name + password.
-/// 3. This screen sends that info to the Pi (reachable at 192.168.4.1 while
-///    the Pi is in hotspot mode).
-/// 4. On success, continues to PersonalInfoScreen with the serial carried
-///    forward.
-///
-/// A "Skip for now" option is also available in case the user wants to
-/// finish WiFi setup later — it goes straight to PersonalInfoScreen without
-/// sending any credentials to the Pi.
+/// 3. This screen sends that info to the Pi (reachable at 10.42.0.1 while
+///    the Pi is in hotspot mode — see CLAUDE'S FIX note below).
+/// 4. On success, continues to RegisterDeviceStep1Screen to enter the
+///    device's serial number. WiFi setup is required — there is no "skip"
+///    option, since the device needs to be online for the rest of
+///    registration (checking the serial, streaming status/location, etc.)
+///    to mean anything.
 class WifiSetupScreen extends StatefulWidget {
-  final String serial;
-  const WifiSetupScreen({super.key, required this.serial});
+  const WifiSetupScreen({super.key});
 
   @override
   State<WifiSetupScreen> createState() => _WifiSetupScreenState();
@@ -124,23 +125,11 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
     }
   }
 
-  void _continueToPersonalInfo() {
+  void _continueToSerialEntry() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => PersonalInfoScreen(serial: widget.serial),
-      ),
-    );
-  }
-
-  /// Skips WiFi setup entirely and continues on to personal info.
-  /// The device stays in "Alisto-Setup" hotspot mode until the user
-  /// configures WiFi some other way (e.g. from a settings screen later).
-  void _skipWifiSetup() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PersonalInfoScreen(serial: widget.serial),
+        builder: (context) => const RegisterDeviceStep1Screen(),
       ),
     );
   }
@@ -164,7 +153,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                 ),
                 const SizedBox(height: 12),
                 const RegisterDeviceStepIndicator(
-                  currentStep: 2,
+                  currentStep: 1,
                   totalSteps: 4,
                 ),
                 const SizedBox(height: 24),
@@ -192,19 +181,6 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                   label: 'Connect Alisto to WiFi',
                   loading: _isConnecting,
                   onPressed: _sendWifiCredentials,
-                ),
-                const SizedBox(height: 12),
-                Center(
-                  child: TextButton(
-                    onPressed: _isConnecting ? null : _skipWifiSetup,
-                    child: const Text(
-                      'Skip for now',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
                 ),
                 if (_statusMessage != null) ...[
                   const SizedBox(height: 16),
@@ -247,7 +223,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                   const SizedBox(height: 16),
                   PrimaryButton(
                     label: 'Continue',
-                    onPressed: _continueToPersonalInfo,
+                    onPressed: _continueToSerialEntry,
                   ),
                 ],
                 const SizedBox(height: 20),

@@ -556,3 +556,88 @@ class AppDivider extends StatelessWidget {
     );
   }
 }
+
+// =========================================================
+// PASSWORD STRENGTH
+// =========================================================
+/// The password rules enforced everywhere a password is created or
+/// changed (sign-up, change password): at least 6 characters, one
+/// uppercase letter, one lowercase letter, one number, one special
+/// character. Centralized here so sign-up and change-password can't
+/// drift out of sync with each other.
+class PasswordRequirement {
+  final String label;
+  final bool Function(String password) isMet;
+  const PasswordRequirement(this.label, this.isMet);
+}
+
+final List<PasswordRequirement> passwordRequirements = [
+  PasswordRequirement('At least 6 characters', (p) => p.length >= 6),
+  PasswordRequirement(
+    'One uppercase letter (A-Z)',
+    (p) => p.contains(RegExp(r'[A-Z]')),
+  ),
+  PasswordRequirement(
+    'One lowercase letter (a-z)',
+    (p) => p.contains(RegExp(r'[a-z]')),
+  ),
+  PasswordRequirement(
+    'One number (0-9)',
+    (p) => p.contains(RegExp(r'[0-9]')),
+  ),
+  PasswordRequirement(
+    'One special character (e.g. ! @ # \$ %)',
+    (p) => p.contains(RegExp(r'[^A-Za-z0-9]')),
+  ),
+];
+
+bool passwordMeetsRequirements(String password) =>
+    passwordRequirements.every((requirement) => requirement.isMet(password));
+
+/// A live checklist shown under a password field. Each rule flips to a
+/// green check the moment it's satisfied, so the person can see exactly
+/// what's still missing as they type instead of only finding out after
+/// they hit submit.
+class PasswordStrengthChecklist extends StatelessWidget {
+  final String password;
+  const PasswordStrengthChecklist({super.key, required this.password});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final requirement in passwordRequirements)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              children: [
+                Icon(
+                  requirement.isMet(password)
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined,
+                  size: 15,
+                  color: requirement.isMet(password)
+                      ? Accent.green
+                      : AppColors.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  requirement.label,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: requirement.isMet(password)
+                        ? Accent.green
+                        : AppColors.textSecondary,
+                    fontWeight: requirement.isMet(password)
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
