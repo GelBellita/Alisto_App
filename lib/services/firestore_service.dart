@@ -117,6 +117,64 @@ class FirestoreService {
       _db.collection('user_account').doc(_uid);
 
   // ---------------------------------------------------------
+  // PUSH NOTIFICATIONS
+  // ---------------------------------------------------------
+  /// Saves this device's FCM token on the user's account -- read by the
+  /// Raspberry Pi (firestore_backend.py's get_family_fcm_tokens(), via the
+  /// Admin SDK) to know where to push emergency alerts. Only one token per
+  /// account (last device wins) -- fine for a family member who mostly
+  /// uses one phone; multi-device support would need an array/subcollection
+  /// instead.
+  static Future<void> saveFcmToken(String token) {
+    return _userDoc.set({'fcm_token': token}, SetOptions(merge: true));
+  }
+
+  /// Marks an alert as seen/handled by whoever tapped "Respond" — lets the
+  /// Pi (and other family members' apps) know a human has acknowledged the
+  /// emergency, not just that the notification was delivered.
+  ///
+  /// Also acknowledges every OTHER still-open alert for the same elder: a
+  /// real panic can mean more than one button/voice trigger before anyone
+  /// responds (the Pi logs a separate alert doc per press, with no
+  /// debounce), so seeing one of them counts as having seen the whole
+  /// episode. Without this, EmergencyAlertDialog's stacked showDialog()
+  /// calls (main.dart) mean "OK, I saw this" only ever dismisses the
+  /// top-most/most-recent dialog -- any earlier alert from the same
+  /// episode is left "acknowledged: false" forever (or until a BHW/admin
+  /// finds it separately), which also keeps its marker stuck on the admin
+  /// map.
+  static Future<void> acknowledgeAlert(String alertId) async {
+    final ref = _db.collection('emergency_alert').doc(alertId);
+    final snap = await ref.get();
+    final elderId = snap.data()?['elder_id'] as String?;
+
+    final batch = _db.batch();
+    batch.update(ref, {
+      'acknowledged': true,
+      'acknowledged_by': _uid,
+      'acknowledged_at': FieldValue.serverTimestamp(),
+    });
+
+    if (elderId != null) {
+      final siblings = await _db
+          .collection('emergency_alert')
+          .where('elder_id', isEqualTo: elderId)
+          .where('alert_status', whereIn: ['PENDING', 'SENT'])
+          .get();
+      for (final doc in siblings.docs) {
+        if (doc.id == alertId || doc.data()['acknowledged'] == true) continue;
+        batch.update(doc.reference, {
+          'acknowledged': true,
+          'acknowledged_by': _uid,
+          'acknowledged_at': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    await batch.commit();
+  }
+
+  // ---------------------------------------------------------
   // ELDER RESOLUTION
   // ---------------------------------------------------------
   static String? _cachedElderId;
@@ -149,7 +207,7 @@ class FirestoreService {
 
   /// Resolves this account's linked elder to their device's serial number
   /// (the `device` collection's document ID). Needed to query
-  /// `DEVICE_LOCATION`, which is keyed by device_id, not elder_id. Returns
+  /// `device_location`, which is keyed by device_id, not elder_id. Returns
   /// null if no device is linked yet, rather than throwing, since GPS is
   /// an optional card on Home that should degrade quietly instead of
   /// breaking the whole screen.
@@ -547,8 +605,18 @@ class FirestoreService {
     });
   }
 
+  /// The device can't reliably read its own phone number off the SIM card
+  /// via AT commands (most prepaid SIMs never have the MSISDN stored on
+  /// them), so this is entered manually here instead -- [serial] is the
+  /// device doc's own ID.
+  static Future<void> setDeviceSimNumber(String serial, String simNumber) {
+    return _db.collection('device').doc(serial).update({
+      'simNumber': simNumber,
+    });
+  }
+
   /// The device's most recent GPS ping — mirrors what app.py's dashboard
-  /// route reads from `DEVICE_LOCATION` (device_id, gps_lat, gps_long,
+  /// route reads from `device_location` (device_id, gps_lat, gps_long,
   /// location_address, recorded_at), written by the Raspberry Pi/Flask
   /// server. Sorts client-side (like the elder-scoped streams above)
   /// instead of `.orderBy()` on the server, so this doesn't need a
@@ -559,7 +627,7 @@ class FirestoreService {
     return _getDeviceSerial().asStream().asyncExpand((serial) {
       if (serial == null) return Stream.value(null);
       return _db
-          .collection('DEVICE_LOCATION')
+          .collection('device_location')
           .where('device_id', isEqualTo: serial)
           .snapshots()
           .map((snapshot) {
@@ -630,15 +698,47 @@ class FirestoreService {
     );
   }
 
+  /// True if this elder already has another ACTIVE reminder for a
+  /// medicine with the same name (case-insensitive, trimmed). Guards
+  /// against accidentally scheduling the same medicine twice under two
+  /// separate entries -- which risks double-dosing, since the device
+  /// would announce/mark both independently. Legitimate multiple-doses-
+  /// per-day needs should use the 'every_hours' schedule type on a
+  /// SINGLE entry instead of two entries. Pass [excludeId] when checking
+  /// during an edit, so a reminder doesn't collide with itself.
+  static Future<bool> hasActiveMedicineNamed(
+    String name, {
+    String? excludeId,
+  }) async {
+    final elderId = await _getElderId();
+    final normalized = name.trim().toLowerCase();
+    final docs = await _db
+        .collection('medication_reminder')
+        .where('elder_id', isEqualTo: elderId)
+        .where('is_active', isEqualTo: true)
+        .get();
+    return docs.docs.any((d) {
+      if (d.id == excludeId) return false;
+      final existingName = (d.data()['medicine_name'] ?? '').toString().trim().toLowerCase();
+      return existingName == normalized;
+    });
+  }
+
   static Future<void> addMedicine({
     required String name,
     required String time,
+    String scheduleType = 'daily',
+    int? intervalValue,
+    String? startDate,
   }) async {
     final elderId = await _getElderId();
     await _db.collection('medication_reminder').add({
       'elder_id': elderId,
       'medicine_name': name,
       'reminder_time': time,
+      'schedule_type': scheduleType,
+      'interval_value': intervalValue,
+      'start_date': startDate,
       'status': 'Upcoming',
       'is_active': true,
       'created_at': FieldValue.serverTimestamp(),
@@ -651,11 +751,17 @@ class FirestoreService {
     required String medicineId,
     required String name,
     required String time,
+    String scheduleType = 'daily',
+    int? intervalValue,
+    String? startDate,
     String? status,
   }) {
     return _db.collection('medication_reminder').doc(medicineId).update({
       'medicine_name': name,
       'reminder_time': time,
+      'schedule_type': scheduleType,
+      'interval_value': intervalValue,
+      'start_date': startDate,
       if (status != null) 'status': status,
       'updated_at': FieldValue.serverTimestamp(),
     });
@@ -666,12 +772,14 @@ class FirestoreService {
   }
 
   // ---------------------------------------------------------
-  // ALERTS — top-level 'alert', elder-scoped
+  // ALERTS — top-level 'emergency_alert' (paper ERD: EMERGENCY_ALERT),
+  // elder-scoped. Renamed from the old 'alert' collection/'created_at'
+  // field -- see app_models.dart's AlertModel doc comment.
   // ---------------------------------------------------------
   static Stream<List<AlertModel>> alertsStream() {
     return _elderScopedStream(
-      'alert',
-      orderByField: 'created_at',
+      'emergency_alert',
+      orderByField: 'date_triggered',
       descending: true,
     ).map((docs) => docs.map((d) => AlertModel.fromDoc(d)).toList());
   }
@@ -682,8 +790,8 @@ class FirestoreService {
 
   static Stream<AlertModel?> latestAlertStream() {
     return _elderScopedStream(
-      'alert',
-      orderByField: 'created_at',
+      'emergency_alert',
+      orderByField: 'date_triggered',
       descending: true,
       limit: 1,
     ).map((docs) => docs.isEmpty ? null : AlertModel.fromDoc(docs.first));

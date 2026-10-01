@@ -1,5 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Required on Android 13+ (API 33) for the app to be allowed to
+         show notifications at all: without this declared, requesting
+         permission at runtime (see NotificationService.init()) can fail
+         silently instead of showing the system "Allow notifications?"
+         prompt. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- EmergencyAlarmService runs as a foreground service so the
+         vibrate+buzz-for-3-minutes emergency alarm keeps running
+         reliably in the background/killed app states, not just while
+         the app is open. Android 14+ (API 34) requires both the general
+         permission and the type-specific one matching the service's
+         declared foregroundServiceType below. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:label="alisto_app"
@@ -32,6 +47,41 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Tells FCM which channel to post to when a push arrives while the
+             app is backgrounded/killed and MainActivity.kt hasn't had a
+             chance to run its own channel-creation code yet: must match
+             the channel ID created in MainActivity.kt and the one used by
+             the Pi's firestore_backend.py send_emergency_push(). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="emergency_alerts" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
+
+        <!-- Native FCM receiver (see AlistoMessagingService.kt): coexists
+             with the firebase_messaging plugin's own service;
+             the FCM SDK delivers each message to every registered
+             FirebaseMessagingService subclass independently. This is
+             what starts EmergencyAlarmService reliably even when the
+             app is fully killed. -->
+        <service
+            android:name=".AlistoMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Runs the vibrate+buzz-for-3-minutes emergency alarm (see
+             EmergencyAlarmService.kt). foregroundServiceType="mediaPlayback"
+             matches the FOREGROUND_SERVICE_MEDIA_PLAYBACK permission above
+             and what the service actually does (plays the alarm tone). -->
+        <service
+            android:name=".EmergencyAlarmService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

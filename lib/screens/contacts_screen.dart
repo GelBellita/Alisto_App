@@ -12,7 +12,11 @@ class ContactsScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: ResponsiveContent(
-        child: SingleChildScrollView(
+        child: RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: () => Future.delayed(const Duration(milliseconds: 600)),
+          child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
           child: StreamBuilder<dynamic>(
             stream: FirestoreService.contactsStream(),
@@ -227,6 +231,7 @@ class ContactsScreen extends StatelessWidget {
               );
             },
           ),
+          ),
         ),
       ),
     );
@@ -250,7 +255,9 @@ class ContactsScreen extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) {
-        return StatefulBuilder(
+        return SafeArea(
+          top: false,
+          child: StatefulBuilder(
           builder: (sheetContext, setSheetState) {
             void showSheetError(String message) {
               ScaffoldMessenger.of(sheetContext).showSnackBar(
@@ -350,6 +357,7 @@ class ContactsScreen extends StatelessWidget {
               ),
             );
           },
+          ),
         );
       },
     );

@@ -47,6 +47,20 @@ kotlin {
     }
 }
 
+dependencies {
+    // AlistoMessagingService.kt (a native FCM receiver, see its own doc
+    // comment for why it exists) needs FirebaseMessagingService/
+    // RemoteMessage at compile time. The firebase_messaging Flutter
+    // plugin already brings the real firebase-messaging library into the
+    // final APK transitively -- compileOnly (not implementation) just
+    // resolves these symbols for our own Kotlin code without packaging a
+    // second copy, which would risk duplicate-class errors if the
+    // plugin's own transitive version ever differs from a version pinned
+    // here.
+    compileOnly(platform("com.google.firebase:firebase-bom:33.5.1"))
+    compileOnly("com.google.firebase:firebase-messaging")
+}
+
 flutter {
     source = "../.."
 }

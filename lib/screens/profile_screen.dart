@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -13,6 +14,8 @@ import 'auth_screens.dart';
 import 'help_support_screen.dart';
 import 'legal_screens.dart';
 import 'personal_information_screen.dart';
+import 'home_screen.dart' show DeviceLocationScreen;
+import 'wifi_setup_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -71,11 +74,17 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              const _ProfileNavTile(
+              _ProfileNavTile(
                 icon: Icons.smartphone_rounded,
                 color: Accent.blue,
                 title: 'Device Information',
                 subtitle: 'View details about your Alisto device',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const DeviceInformationScreen(),
+                  ),
+                ),
               ),
               const SizedBox(height: 10),
               _ProfileNavTile(
@@ -130,6 +139,421 @@ class ProfileScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------
+// DEVICE INFORMATION — read-only view of the device/{serial} doc this
+// account is linked to, plus which elder it's protecting and a shortcut
+// to the same location view used from the Home screen's GPS card.
+// ---------------------------------------------------------
+/// Walks the user through moving Alisto to a new WiFi network -- e.g.
+/// after physically relocating the device to a different house/room with
+/// a different network. Reuses the exact same setup flow as first-time
+/// onboarding (WifiSetupScreen), which already knows how to reach the
+/// device's own temporary "Alisto-Setup" hotspot; only the destination
+/// after a successful connect differs (isReconfiguring: true returns
+/// here instead of continuing into device registration).
+void _showChangeWifiInstructions(BuildContext context) {
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: const Text('Change WiFi Network'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Text('If you moved Alisto somewhere with a different WiFi, follow these steps:'),
+          SizedBox(height: 12),
+          _WifiStep(number: '1', text: 'Unplug Alisto\'s power, wait 10 seconds, then plug it back in.'),
+          SizedBox(height: 8),
+          _WifiStep(number: '2', text: 'Wait about 30 seconds for it to start its own "Alisto-Setup" WiFi network.'),
+          SizedBox(height: 8),
+          _WifiStep(number: '3', text: 'On your phone, open WiFi settings and connect to "Alisto-Setup".'),
+          SizedBox(height: 8),
+          _WifiStep(number: '4', text: 'Come back here and tap Continue to enter the new WiFi name and password.'),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(dialogContext);
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const WifiSetupScreen(isReconfiguring: true),
+              ),
+            );
+          },
+          child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+      ],
+    ),
+  );
+}
+
+class _WifiStep extends StatelessWidget {
+  final String number;
+  final String text;
+  const _WifiStep({required this.number, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 20,
+          height: 20,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+          child: Text(
+            number,
+            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(text, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.35)),
+        ),
+      ],
+    );
+  }
+}
+
+class DeviceInformationScreen extends StatelessWidget {
+  const DeviceInformationScreen({super.key});
+
+  String _formatDate(dynamic value) {
+    if (value is! Timestamp) return 'Unknown';
+    final d = value.toDate();
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: const MinimalBackAppBar(),
+      body: SafeArea(
+        top: false,
+        child: ResponsiveContent(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  'Device Information',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Details about the Alisto device linked to this account.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 20),
+                StreamBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
+                  stream: FirestoreService.deviceStream(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 60),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+
+                    final device = snapshot.data?.data();
+                    if (device == null) {
+                      return AppCard(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.smartphone_rounded,
+                              size: 32,
+                              color: AppColors.textSecondary,
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'No device linked yet',
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontSize: 14),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Register or join an Alisto device to see its '
+                              'details here.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    final serial = (device['serial_number'] ?? '—').toString();
+                    final storedStatus = (device['status'] ?? 'Offline').toString();
+                    final lastSeenRaw = device['last_seen'];
+                    final simRaw = (device['simNumber'] ?? '').toString().trim();
+                    final simNumber = simRaw.isEmpty || simRaw == '—' ? 'Not set yet' : simRaw;
+                    final registeredOn = _formatDate(device['registeredAt']);
+                    final elderId = device['elder_id'] as String?;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AppCard(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      serial,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 16,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                  LiveDeviceStatus(
+                                    storedStatus: storedStatus,
+                                    lastSeenRaw: lastSeenRaw,
+                                    builder: (context, status) => StatusPill(
+                                      label: status,
+                                      color: status == 'Online'
+                                          ? Accent.green
+                                          : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Serial Number',
+                                style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                              ),
+                              const SizedBox(height: 14),
+                              const AppDivider(),
+                              const SizedBox(height: 14),
+                              _SimNumberRow(
+                                serial: serial,
+                                simNumber: simNumber,
+                              ),
+                              const SizedBox(height: 12),
+                              _DeviceDetailRow(
+                                icon: Icons.event_available_rounded,
+                                label: 'Registered On',
+                                value: registeredOn,
+                              ),
+                              if (elderId != null) ...[
+                                const SizedBox(height: 12),
+                                _ElderNameRow(elderId: elderId),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        _ProfileNavTile(
+                          icon: Icons.location_on_rounded,
+                          color: Accent.purple,
+                          title: 'Device Location',
+                          subtitle: 'View the last known location on a map',
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const DeviceLocationScreen(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _ProfileNavTile(
+                          icon: Icons.wifi_rounded,
+                          color: Accent.blue,
+                          title: 'Change WiFi Network',
+                          subtitle: 'Moved Alisto somewhere new? Connect it to a different WiFi',
+                          onTap: () => _showChangeWifiInstructions(context),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DeviceDetailRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _DeviceDetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: AppColors.textSecondary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// SIM Number, editable -- the device can't reliably read its own phone
+/// number off the SIM card via AT commands (most prepaid SIMs never have
+/// the MSISDN stored on them, so an AT+CNUM query usually comes back
+/// empty), so this is entered manually here and pushed straight to
+/// Firestore's device/{serial}.simNumber instead of being auto-detected.
+class _SimNumberRow extends StatelessWidget {
+  final String serial;
+  final String simNumber;
+  const _SimNumberRow({required this.serial, required this.simNumber});
+
+  Future<void> _edit(BuildContext context) async {
+    final controller = TextEditingController(
+      text: simNumber == 'Not set yet' ? '' : simNumber,
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('SIM Number'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'The device can\'t reliably read its own number from the SIM '
+              'card, so please enter it manually.',
+              style: Theme.of(dialogContext).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            AppTextField(
+              label: 'Phone Number',
+              controller: controller,
+              keyboardType: TextInputType.phone,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (result == null || result.isEmpty || !context.mounted) return;
+    try {
+      await FirestoreService.setDeviceSimNumber(serial, result);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not save the SIM number: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => _edit(context),
+      child: Row(
+        children: [
+          const Icon(Icons.sim_card_rounded, size: 16, color: AppColors.textSecondary),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'SIM Number',
+              style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+          ),
+          Text(
+            simNumber,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.edit_rounded, size: 14, color: AppColors.primary),
+        ],
+      ),
+    );
+  }
+}
+
+/// One-time lookup of the elder this device is linked to -- elder_profile
+/// rarely changes (only on re-registration/relinking), so this doesn't
+/// need to be a live stream like the rest of this screen.
+class _ElderNameRow extends StatelessWidget {
+  final String elderId;
+  const _ElderNameRow({required this.elderId});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance.collection('elder_profile').doc(elderId).get(),
+      builder: (context, snapshot) {
+        final name = snapshot.data?.data()?['full_name']?.toString();
+        return _DeviceDetailRow(
+          icon: Icons.favorite_rounded,
+          label: 'Protecting',
+          value: (name == null || name.isEmpty) ? '—' : name,
+        );
+      },
     );
   }
 }

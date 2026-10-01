@@ -20,9 +20,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: ResponsiveContent(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-          child: Column(
+        child: RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: () => Future.delayed(const Duration(milliseconds: 600)),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(
@@ -65,10 +69,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       child: Center(child: CircularProgressIndicator()),
                     );
                   }
-                  var docs = snapshot.data;
-                  var alerts = docs
-                      .map<AlertModel>((d) => AlertModel.fromDoc(d))
-                      .toList();
+                  // FirestoreService.alertsStream() already emits
+                  // List<AlertModel> (it maps the raw Firestore docs to
+                  // AlertModel internally) -- re-mapping here with
+                  // AlertModel.fromDoc() was calling doc.data() on an
+                  // AlertModel instance, which has no such method, and
+                  // crashed this whole screen on every emission (hidden
+                  // as a plain grey box in a release build).
+                  var alerts = List<AlertModel>.from(snapshot.data as List);
 
                   if (_tab == 1) {
                     alerts = alerts
@@ -104,6 +112,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 },
               ),
             ],
+            ),
           ),
         ),
       ),
@@ -156,9 +165,37 @@ class _SegmentedTabs extends StatelessWidget {
   }
 }
 
-class _HistoryEntryCard extends StatelessWidget {
+class _HistoryEntryCard extends StatefulWidget {
   final AlertModel alert;
   const _HistoryEntryCard({required this.alert});
+
+  @override
+  State<_HistoryEntryCard> createState() => _HistoryEntryCardState();
+}
+
+class _HistoryEntryCardState extends State<_HistoryEntryCard> {
+  bool _responding = false;
+
+  AlertModel get alert => widget.alert;
+
+  Future<void> _respond() async {
+    setState(() => _responding = true);
+    try {
+      await FirestoreService.acknowledgeAlert(alert.id);
+      // No need to setState back to false on success -- the alertsStream
+      // this card was built from will emit the updated (acknowledged=true)
+      // doc and rebuild this whole card without the button.
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _responding = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not mark as responded: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
 
   IconData get _icon {
     switch (alert.type) {
@@ -250,6 +287,55 @@ class _HistoryEntryCard extends StatelessWidget {
                       height: 1.3,
                     ),
                   ),
+                if (_highlighted) ...[
+                  const SizedBox(height: 8),
+                  if (alert.acknowledged)
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.check_circle_rounded,
+                          size: 14,
+                          color: Accent.green,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Responded',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Accent.green,
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    SizedBox(
+                      height: 30,
+                      child: OutlinedButton(
+                        onPressed: _responding ? null : _respond,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          side: BorderSide(color: AppColors.error),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        child: _responding
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Respond',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                      ),
+                    ),
+                ],
               ],
             ),
           ),

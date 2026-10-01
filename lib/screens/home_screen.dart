@@ -9,6 +9,7 @@ import '../widgets/user_avatar.dart';
 import '../services/firestore_service.dart';
 import '../models/app_models.dart';
 import 'medicine_screens.dart';
+import 'history_screen.dart';
 
 /// How many reminders the Home card previews before "View All" is needed.
 const int _kHomeMedicinePreviewCount = 3;
@@ -21,21 +22,30 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: ResponsiveContent(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _HomeHeader(),
-              const SizedBox(height: 18),
-              const _DeviceStatusCard(),
-              const SizedBox(height: 16),
-              const _MedicineReminderCard(),
-              const SizedBox(height: 18),
-              const SectionLabel('Quick Actions'),
-              const SizedBox(height: 10),
-              const _QuickActionsRow(),
-            ],
+        // Everything on this screen is already a live Firestore stream
+        // (StreamBuilder), so there's nothing to explicitly re-fetch --
+        // this just gives the familiar pull-down gesture/spinner users
+        // expect, matching other apps.
+        child: RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: () => Future.delayed(const Duration(milliseconds: 600)),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _HomeHeader(),
+                const SizedBox(height: 18),
+                const _DeviceStatusCard(),
+                const SizedBox(height: 16),
+                const _MedicineReminderCard(),
+                const SizedBox(height: 18),
+                const SectionLabel('Quick Actions'),
+                const SizedBox(height: 10),
+                const _QuickActionsRow(),
+              ],
+            ),
           ),
         ),
       ),
@@ -81,10 +91,20 @@ class _HomeHeader extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(
-              Icons.notifications_none_rounded,
-              color: AppColors.primary,
-              size: 26,
+            InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryScreen()),
+              ),
+              child: const Padding(
+                padding: EdgeInsets.all(4),
+                child: Icon(
+                  Icons.notifications_none_rounded,
+                  color: AppColors.primary,
+                  size: 26,
+                ),
+              ),
             ),
           ],
         );
@@ -107,7 +127,8 @@ class _DeviceStatusCard extends StatelessWidget {
       stream: FirestoreService.deviceStream(),
       builder: (context, deviceSnapshot) {
         final device = deviceSnapshot.data?.data() as Map<String, dynamic>?;
-        final status = device?['status'] ?? 'Offline';
+        final storedStatus = (device?['status'] ?? 'Offline').toString();
+        final lastSeenRaw = device?['last_seen'];
         final deviceSim = (device?['simNumber'] ?? '').toString().trim();
 
         return StreamBuilder<dynamic>(
@@ -140,11 +161,15 @@ class _DeviceStatusCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontSize: 15),
                       ),
-                      StatusPill(
-                        label: status,
-                        color: status == 'Online'
-                            ? Accent.green
-                            : AppColors.textSecondary,
+                      LiveDeviceStatus(
+                        storedStatus: storedStatus,
+                        lastSeenRaw: lastSeenRaw,
+                        builder: (context, status) => StatusPill(
+                          label: status,
+                          color: status == 'Online'
+                              ? Accent.green
+                              : AppColors.textSecondary,
+                        ),
                       ),
                     ],
                   ),
@@ -206,16 +231,23 @@ class _LastAlertTile extends StatelessWidget {
         final alert = snapshot.data;
         final isEmergency = alert?.type == 'emergency';
 
-        return _StatTile(
-          icon: Icons.history_rounded,
-          color: isEmergency ? AppColors.error : Accent.yellow,
-          label: 'Last Alert',
-          value: alert == null
-              ? 'None yet'
-              : (alert.title.isEmpty
-                    ? _alertTypeLabel(alert.type)
-                    : alert.title),
-          subValue: alert?.time,
+        return InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const HistoryScreen()),
+          ),
+          child: _StatTile(
+            icon: Icons.history_rounded,
+            color: isEmergency ? AppColors.error : Accent.yellow,
+            label: 'Last Alert',
+            value: alert == null
+                ? 'None yet'
+                : (alert.title.isEmpty
+                      ? _alertTypeLabel(alert.type)
+                      : alert.title),
+            subValue: alert?.time,
+          ),
         );
       },
     );
@@ -550,7 +582,7 @@ class _MedicineRow extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    medicine.time,
+                    medicine.scheduleLabel,
                     style: const TextStyle(
                       fontSize: 11.5,
                       color: AppColors.textSecondary,

@@ -1,5 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// The Pi writes a heartbeat to device/{serial}.last_seen every ~30s (see
+/// alisto_main.py's heartbeat_loop()) -- treat it as stale (device likely
+/// crashed or lost power) after 3x that interval, to absorb a missed
+/// cycle or two without flickering to "Offline" falsely.
+const int kHeartbeatStaleAfterSeconds = 90;
+
+/// Combines the device doc's stored 'status' field with the freshness of
+/// its 'last_seen' heartbeat. The Pi only ever sets 'status' to 'Online'
+/// once, at pairing time -- nothing flips it back if the Pi later
+/// crashes or loses power, so trusting 'status' alone would show a dead
+/// device as "Online" forever. A device that was never paired ('Pending')
+/// or was explicitly marked otherwise is returned as-is.
+String effectiveDeviceStatus(String storedStatus, dynamic lastSeenRaw) {
+  if (storedStatus != 'Online') return storedStatus;
+  if (lastSeenRaw is! Timestamp) return 'Offline'; // no heartbeat ever received
+  final age = DateTime.now().difference(lastSeenRaw.toDate());
+  return age.inSeconds > kHeartbeatStaleAfterSeconds ? 'Offline' : 'Online';
+}
+
 class ContactModel {
   final String id;
   final String name;
@@ -42,11 +61,26 @@ class MedicineModel {
   final String time;
   final String status; // 'Upcoming' or 'Notified'
 
+  /// 'daily' (the original, still-default behavior: fires once a day at
+  /// [time]), 'every_hours' (fires every [intervalValue] hours, anchored
+  /// to [time] as the first dose of the day), or 'every_days' (fires at
+  /// [time], but only on days that are an exact multiple of
+  /// [intervalValue] days since [startDate] -- e.g. intervalValue=2 for
+  /// "every other day"). The device (see alisto_main.py's
+  /// _should_fire_now()) reads these same three fields to decide when to
+  /// actually speak the reminder.
+  final String scheduleType;
+  final int? intervalValue;
+  final String? startDate; // "YYYY-MM-DD", only set for 'every_days'
+
   MedicineModel({
     required this.id,
     required this.name,
     required this.time,
     required this.status,
+    this.scheduleType = 'daily',
+    this.intervalValue,
+    this.startDate,
   });
 
   factory MedicineModel.fromDoc(QueryDocumentSnapshot doc) {
@@ -56,34 +90,71 @@ class MedicineModel {
       name: data['medicine_name'] ?? '',
       time: data['reminder_time'] ?? '',
       status: data['status'] ?? 'Upcoming',
+      scheduleType: data['schedule_type'] ?? 'daily',
+      intervalValue: data['interval_value'] as int?,
+      startDate: data['start_date'] as String?,
     );
+  }
+
+  /// Short human-readable summary shown in place of a plain time, e.g.
+  /// "Every 4 hrs, from 2:30 AM" or "Every 2 days at 2:30 AM" --
+  /// 'daily' just shows the time itself, unchanged from before this
+  /// scheduling feature existed.
+  String get scheduleLabel {
+    switch (scheduleType) {
+      case 'every_hours':
+        return 'Every ${intervalValue ?? '?'} hrs, from $time';
+      case 'every_days':
+        final n = intervalValue ?? 1;
+        final everyLabel = n == 1 ? 'day' : '$n days';
+        return 'Every $everyLabel at $time';
+      default:
+        return time;
+    }
   }
 }
 
+/// Reads from `emergency_alert` (renamed from the old `alert` collection
+/// to match the capstone paper's ERD -- see firestore_backend.py's module
+/// docstring on the Pi for the full field list). The Pi only ever writes
+/// trigger_type 'VOICE'/'BUTTON' emergencies here (no 'medicine'/
+/// 'battery'/'system' rows were ever actually produced under the old
+/// schema either), so [type] is a fixed 'emergency' rather than a field
+/// read off the doc -- matches the paper's EMERGENCY_ALERT entity, which
+/// has no such column.
 class AlertModel {
   final String id;
-  final String type; // 'emergency', 'medicine', 'battery', 'system'
+  final String type;
   final String title;
   final String time;
   final List<String> lines;
+  final bool acknowledged;
 
   AlertModel({
     required this.id,
-    required this.type,
     required this.title,
     required this.time,
     required this.lines,
+    this.type = 'emergency',
+    this.acknowledged = false,
   });
 
   factory AlertModel.fromDoc(QueryDocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     return AlertModel(
       id: doc.id,
-      type: data['type'] ?? 'system',
       title: data['title'] ?? '',
-      time: data['time'] ?? '',
+      time: _formatTriggeredAt(data['date_triggered'] as Timestamp?),
       lines: List<String>.from(data['lines'] ?? const []),
+      acknowledged: data['acknowledged'] == true,
     );
+  }
+
+  static String _formatTriggeredAt(Timestamp? ts) {
+    if (ts == null) return '';
+    final d = ts.toDate();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}:${two(d.second)}';
   }
 }
 

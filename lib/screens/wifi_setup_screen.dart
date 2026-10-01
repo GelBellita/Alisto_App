@@ -28,7 +28,13 @@ import 'device_registration_screens.dart';
 ///    registration (checking the serial, streaming status/location, etc.)
 ///    to mean anything.
 class WifiSetupScreen extends StatefulWidget {
-  const WifiSetupScreen({super.key});
+  /// True when reached from an already-registered device's own settings
+  /// (see DeviceInformationScreen's "Change WiFi Network" entry) instead
+  /// of first-time onboarding -- on success, this just returns to
+  /// wherever the user came from instead of pushing into the device
+  /// registration flow, which only makes sense the very first time.
+  final bool isReconfiguring;
+  const WifiSetupScreen({super.key, this.isReconfiguring = false});
 
   @override
   State<WifiSetupScreen> createState() => _WifiSetupScreenState();
@@ -86,13 +92,23 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
     });
 
     try {
+      // CLAUDE'S FIX: the Pi's own connect_to_wifi() sequence (bring the
+      // hotspot down, rescan, then attempt the real connection with its
+      // own 30s timeout) can legitimately take up to ~35s end to end
+      // before this request even gets a response. The old 20s client
+      // timeout here was SHORTER than that worst case, so the app was
+      // giving up and reporting "could not reach Alisto" while the Pi
+      // was still genuinely working -- which is exactly what made this
+      // feel like it needed repeated retries: each "failed" attempt was
+      // often actually still in progress, and retrying just restarted
+      // the whole slow sequence again instead of letting it finish.
       final response = await http
           .post(
             Uri.parse(_piSetupUrl),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'ssid': ssid, 'password': password}),
           )
-          .timeout(const Duration(seconds: 20));
+          .timeout(const Duration(seconds: 45));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -114,18 +130,65 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         });
       }
     } catch (e) {
+      // CLAUDE'S FIX: the request itself can fail to complete for TWO very
+      // different reasons that look identical from here: (a) Alisto
+      // genuinely couldn't be reached, or (b) it actually succeeded --
+      // connecting to the real WiFi makes Alisto leave the Alisto-Setup
+      // hotspot mid-response, so the phone loses its only path back to it
+      // before ever seeing the reply. Real device testing confirmed this
+      // exact case: the Pi's own logs showed a successful connection and
+      // the speaker even announced "Connected to your home WiFi", yet this
+      // screen still showed this generic unreachable error every time,
+      // with no way to proceed (no skip option once WiFi is required).
+      //
+      // Tell the two apart by polling Alisto's hotspot-mode /status
+      // endpoint for a few seconds: if it stays reachable, Alisto is still
+      // broadcasting the hotspot (genuine failure, safe to retry). If it
+      // becomes unreachable, Alisto left hotspot mode -- which only ever
+      // happens after it actually joined the real network.
+      final actuallySucceeded = await _probeForSuccessAfterDrop();
       setState(() {
-        _lastAttemptSucceeded = false;
-        _statusMessage =
-            'Could not reach Alisto. Make sure your phone is still connected '
-            'to the "Alisto-Setup" WiFi network, then try again.';
+        _lastAttemptSucceeded = actuallySucceeded;
+        _statusMessage = actuallySucceeded
+            ? 'Success! Alisto connected to "$ssid" and left setup mode. '
+                  'You can now reconnect your phone to your normal WiFi and continue.'
+            : 'Could not reach Alisto. Make sure your phone is still connected '
+                  'to the "Alisto-Setup" WiFi network, then try again.';
       });
     } finally {
       setState(() => _isConnecting = false);
     }
   }
 
+  /// Only called after the initial POST failed to complete (see the catch
+  /// block above for why that's ambiguous). Polls Alisto's hotspot-mode
+  /// status endpoint every 2s for up to 8s: if it never responds again,
+  /// the hotspot is gone -- which only happens once Alisto actually left
+  /// AP mode to join the real network, meaning the connect attempt that
+  /// just appeared to "fail" actually succeeded.
+  Future<bool> _probeForSuccessAfterDrop() async {
+    const statusUrl = 'http://10.42.0.1:5000/status';
+    for (var i = 0; i < 4; i++) {
+      await Future.delayed(const Duration(seconds: 2));
+      try {
+        await http.get(Uri.parse(statusUrl)).timeout(const Duration(seconds: 2));
+        // Still reachable -- Alisto is still in hotspot mode, so keep
+        // checking (a genuine failure restores the hotspot quickly, but
+        // give it the full window in case that's still in progress).
+      } catch (_) {
+        return true; // unreachable -- Alisto left hotspot mode -> success
+      }
+    }
+    return false;
+  }
+
   void _continueToSerialEntry() {
+    if (widget.isReconfiguring) {
+      // Already a registered device -- nothing left to set up, just
+      // return to wherever this was opened from (Device Information).
+      Navigator.pop(context);
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -182,6 +245,26 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                   loading: _isConnecting,
                   onPressed: _sendWifiCredentials,
                 ),
+                if (_isConnecting) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Connecting Alisto to your WiFi -- this can take up '
+                          'to 30 seconds. Please wait, no need to press again.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (_statusMessage != null) ...[
                   const SizedBox(height: 16),
                   Container(
@@ -222,7 +305,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                 if (_lastAttemptSucceeded == true) ...[
                   const SizedBox(height: 16),
                   PrimaryButton(
-                    label: 'Continue',
+                    label: widget.isReconfiguring ? 'Done' : 'Continue',
                     onPressed: _continueToSerialEntry,
                   ),
                 ],

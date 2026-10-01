@@ -1,5 +1,54 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../models/app_models.dart';
 import '../theme/app_theme.dart';
+
+/// Re-evaluates [effectiveDeviceStatus] on a periodic tick, not just
+/// when Firestore pushes a new snapshot -- a genuinely offline device
+/// (crashed/lost power) stops writing to Firestore entirely, so no new
+/// snapshot would ever arrive on its own to reveal that its heartbeat
+/// went stale. This ticks independently so the badge still flips to
+/// "Offline" a few checks after the last real heartbeat, without the
+/// user needing to pull-to-refresh or navigate away and back.
+class LiveDeviceStatus extends StatefulWidget {
+  final String storedStatus;
+  final dynamic lastSeenRaw;
+  final Widget Function(BuildContext context, String effectiveStatus) builder;
+  const LiveDeviceStatus({
+    super.key,
+    required this.storedStatus,
+    required this.lastSeenRaw,
+    required this.builder,
+  });
+
+  @override
+  State<LiveDeviceStatus> createState() => _LiveDeviceStatusState();
+}
+
+class _LiveDeviceStatusState extends State<LiveDeviceStatus> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final effective = effectiveDeviceStatus(widget.storedStatus, widget.lastSeenRaw);
+    return widget.builder(context, effective);
+  }
+}
 
 // =========================================================
 // BUTTONS & INPUTS
