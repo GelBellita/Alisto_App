@@ -42,10 +42,13 @@ import 'auth_service.dart';
 ///   elder_id, medicine_name, reminder_time, status ("Upcoming" |
 ///   "Notified"), is_active, created_at, updated_at
 ///
-/// alert/{alertId}
-///   elder_id, type, title, time, lines (list of strings), created_at
-///   -> Written by the Raspberry Pi/Flask server. created_at is REQUIRED
-///      for ordering.
+/// emergency_alert/{alertId}
+///   elder_id, type, title, time, lines (list of strings),
+///   date_triggered, alert_status, acknowledged,
+///   hidden_for (list of user uids — soft delete, app-only field)
+///   -> Written by the Raspberry Pi/Flask server. date_triggered is
+///      REQUIRED for ordering. The app never deletes these docs; a user
+///      "deleting" one only adds their uid to hidden_for.
 ///
 /// NOTE on photoBase64: stored inline on the user doc rather than Firebase
 /// Storage, since Storage needs billing enabled. Downscaled to 512px /
@@ -68,10 +71,12 @@ class DeviceCheckResult {
   final String? elderDob;
   final String? elderAddress;
   final String? elderSex;
+
   /// The elder_profile document exactly as stored in Firestore — every
   /// field, not just the handful named above. Use this to render whatever
   /// actually exists on the document instead of a fixed set of rows.
   final Map<String, dynamic>? elderData;
+
   /// The device document itself (status, simNumber, gps, registeredAt,
   /// etc.) — also "what's in Firebase" for this serial, separate from the
   /// elder it's linked to.
@@ -104,6 +109,9 @@ class FirestoreService {
   // Matches app.py's MAX_FAMILY_PER_DEVICE — was 3 here, which is why the
   // app was refusing joins the web app would still allow.
   static const int maxFamilyPerDevice = 5;
+
+  /// Firestore allows at most 500 writes per batch; stay safely under it.
+  static const int _batchLimit = 450;
 
   static String get _uid {
     final user = AuthService.currentUser;
@@ -346,16 +354,9 @@ class FirestoreService {
   // DEVICE + ELDER REGISTRATION (claim a NEW device)
   // ---------------------------------------------------------
   /// Checks whether a device with this serial number exists in Firestore
-  /// AT ALL — used to validate the serial right at entry time (including
-  /// right after a QR scan), before the user fills in three more screens
-  /// of elder info only to find out the device doesn't exist.
-  /// Does NOT check whether it's already claimed — that's handled
-  /// separately by registerDevice()/linkToExistingDevice() so the "already
-  /// claimed, join instead" path still works.
-  ///
-  /// Superseded by [checkDevice] below, which also looks up the elder and
-  /// family-slot details the way app.py's /check_device does. Kept here in
-  /// case anything else in the app still calls it directly.
+  /// AT ALL. Superseded by [checkDevice] below, which also looks up the
+  /// elder and family-slot details the way app.py's /check_device does.
+  /// Kept here in case anything else in the app still calls it directly.
   static Future<bool> checkDeviceSerialExists(String serial) async {
     final doc = await _db.collection('device').doc(serial.trim()).get();
     return doc.exists;
@@ -370,11 +371,6 @@ class FirestoreService {
   ///   the elder's name/DOB are fetched from `elder_profile` so the UI can
   ///   show who it belongs to, and [canJoin] reflects whether there's still
   ///   room under [maxFamilyPerDevice] linked family accounts.
-  ///
-  /// Call this instead of [checkDeviceSerialExists] so the app can branch
-  /// into "claim" vs. "join" the same way the web wizard does, instead of
-  /// only finding out a device was already claimed at the very end of a
-  /// multi-screen form.
   static Future<DeviceCheckResult> checkDevice(String serial) async {
     final trimmed = serial.trim();
     final deviceDoc = await _db.collection('device').doc(trimmed).get();
@@ -418,7 +414,8 @@ class FirestoreService {
         elderId: elderId,
         familyCount: 0,
         familyLimit: maxFamilyPerDevice,
-        message: 'This Device ID cannot be registered right now. Please '
+        message:
+            'This Device ID cannot be registered right now. Please '
             'contact an administrator.',
       );
     }
@@ -478,8 +475,7 @@ class FirestoreService {
     final deviceData = deviceDoc.data()!;
     String elderId;
 
-    if (deviceData['is_registered'] == true &&
-        deviceData['elder_id'] != null) {
+    if (deviceData['is_registered'] == true && deviceData['elder_id'] != null) {
       // Already claimed — join instead of creating a duplicate elder.
       elderId = deviceData['elder_id'] as String;
 
@@ -585,9 +581,7 @@ class FirestoreService {
         .limit(1)
         .get();
     if (deviceQuery.docs.isEmpty) return;
-    return deviceQuery.docs.first.reference.update({
-      'simNumber': simNumber,
-    });
+    return deviceQuery.docs.first.reference.update({'simNumber': simNumber});
   }
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>?> deviceStream() {
@@ -618,11 +612,10 @@ class FirestoreService {
   /// The device's most recent GPS ping — mirrors what app.py's dashboard
   /// route reads from `device_location` (device_id, gps_lat, gps_long,
   /// location_address, recorded_at), written by the Raspberry Pi/Flask
-  /// server. Sorts client-side (like the elder-scoped streams above)
-  /// instead of `.orderBy()` on the server, so this doesn't need a
-  /// hand-created composite index to work. Emits null while no device is
-  /// linked yet or no location has ever been reported — never throws, so
-  /// a missing GPS fix doesn't take down the whole Home screen.
+  /// server. Sorts client-side instead of `.orderBy()` on the server, so
+  /// this doesn't need a hand-created composite index. Emits null while no
+  /// device is linked yet or no location has ever been reported — never
+  /// throws, so a missing GPS fix doesn't take down the whole Home screen.
   static Stream<LocationModel?> latestLocationStream() {
     return _getDeviceSerial().asStream().asyncExpand((serial) {
       if (serial == null) return Stream.value(null);
@@ -660,10 +653,7 @@ class FirestoreService {
   // ---------------------------------------------------------
   static Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
   contactsStream() {
-    return _elderScopedStream(
-      'emergency_contact',
-      orderByField: 'created_at',
-    );
+    return _elderScopedStream('emergency_contact', orderByField: 'created_at');
   }
 
   static Future<void> addContact({
@@ -719,7 +709,10 @@ class FirestoreService {
         .get();
     return docs.docs.any((d) {
       if (d.id == excludeId) return false;
-      final existingName = (d.data()['medicine_name'] ?? '').toString().trim().toLowerCase();
+      final existingName = (d.data()['medicine_name'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
       return existingName == normalized;
     });
   }
@@ -776,12 +769,28 @@ class FirestoreService {
   // elder-scoped. Renamed from the old 'alert' collection/'created_at'
   // field -- see app_models.dart's AlertModel doc comment.
   // ---------------------------------------------------------
+  /// Every alert for this account's elder, newest first — MINUS the ones
+  /// this user has deleted (soft delete: their uid is in `hidden_for`).
+  /// Count and "latest" below are derived from this one stream, so a
+  /// deleted alert disappears from History, the Home alert count and the
+  /// Last Alert tile all at once.
   static Stream<List<AlertModel>> alertsStream() {
+    final uid = _uid;
     return _elderScopedStream(
       'emergency_alert',
       orderByField: 'date_triggered',
       descending: true,
-    ).map((docs) => docs.map((d) => AlertModel.fromDoc(d)).toList());
+    ).map(
+      (docs) => docs
+          .where((d) => !_isHiddenFor(d.data(), uid))
+          .map((d) => AlertModel.fromDoc(d))
+          .toList(),
+    );
+  }
+
+  static bool _isHiddenFor(Map<String, dynamic> data, String uid) {
+    final hiddenFor = data['hidden_for'];
+    return hiddenFor is List && hiddenFor.contains(uid);
   }
 
   static Stream<int> alertsCountStream() {
@@ -789,11 +798,26 @@ class FirestoreService {
   }
 
   static Stream<AlertModel?> latestAlertStream() {
-    return _elderScopedStream(
-      'emergency_alert',
-      orderByField: 'date_triggered',
-      descending: true,
-      limit: 1,
-    ).map((docs) => docs.isEmpty ? null : AlertModel.fromDoc(docs.first));
+    return alertsStream().map((list) => list.isEmpty ? null : list.first);
+  }
+
+  /// SOFT delete: adds this user's uid to each alert's `hidden_for`
+  /// array instead of deleting the document. The alert disappears from
+  /// THIS user's app only — other linked family members, the BHW/admin
+  /// web dashboard, and the record itself (for reports / audit history)
+  /// are untouched. Batched and chunked under Firestore's
+  /// 500-writes-per-batch limit.
+  static Future<void> hideAlerts(List<String> alertIds) async {
+    final uid = _uid;
+    final alerts = _db.collection('emergency_alert');
+    for (var i = 0; i < alertIds.length; i += _batchLimit) {
+      final batch = _db.batch();
+      for (final id in alertIds.skip(i).take(_batchLimit)) {
+        batch.update(alerts.doc(id), {
+          'hidden_for': FieldValue.arrayUnion([uid]),
+        });
+      }
+      await batch.commit();
+    }
   }
 }

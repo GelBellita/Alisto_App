@@ -1,8 +1,30 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
 import '../models/app_models.dart';
 import '../theme/app_theme.dart';
+
+// =========================================================
+// NAVIGATION HELPERS — one place for all route changes
+// =========================================================
+extension AppNavigation on BuildContext {
+  /// Normal push — back returns to the current screen.
+  Future<T?> pushScreen<T>(Widget screen) =>
+      Navigator.of(this).push<T>(MaterialPageRoute(builder: (_) => screen));
+
+  /// Swaps the current screen (e.g. Login <-> Sign Up) so they don't
+  /// pile up on the stack.
+  Future<T?> replaceScreen<T>(Widget screen) =>
+      Navigator.of(this)
+          .pushReplacement<T, void>(MaterialPageRoute(builder: (_) => screen));
+
+  /// Clears the whole stack — only where going back makes no sense
+  /// (after login, sign-up, logout, finishing registration).
+  void goToRoot(Widget screen) => Navigator.of(
+    this,
+  ).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => screen), (_) => false);
+}
 
 /// Re-evaluates [effectiveDeviceStatus] on a periodic tick, not just
 /// when Firestore pushes a new snapshot -- a genuinely offline device
@@ -45,7 +67,10 @@ class _LiveDeviceStatusState extends State<LiveDeviceStatus> {
 
   @override
   Widget build(BuildContext context) {
-    final effective = effectiveDeviceStatus(widget.storedStatus, widget.lastSeenRaw);
+    final effective = effectiveDeviceStatus(
+      widget.storedStatus,
+      widget.lastSeenRaw,
+    );
     return widget.builder(context, effective);
   }
 }
@@ -142,27 +167,50 @@ class AppTextField extends StatelessWidget {
 // =========================================================
 // APP BAR / NAV PIECES
 // =========================================================
+/// The app's one back-arrow app bar, with an optional centered [title].
 class MinimalBackAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const MinimalBackAppBar({super.key});
+  final String? title;
+
+  /// Overrides what the back arrow does. When null, the arrow pops the
+  /// current route — and is HIDDEN when there's nothing below to pop to
+  /// (popping the last route is what left a black screen).
+  final VoidCallback? onBack;
+
+  const MinimalBackAppBar({super.key, this.title, this.onBack});
 
   @override
   Widget build(BuildContext context) {
+    final showBack = onBack != null || Navigator.canPop(context);
     return AppBar(
       backgroundColor: AppColors.background,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
+      automaticallyImplyLeading: false,
+      centerTitle: true,
+      titleSpacing: 0,
       leadingWidth: 56,
-      leading: Padding(
-        padding: const EdgeInsets.only(left: 8),
-        child: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_rounded,
-            color: AppColors.textPrimary,
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
+      leading: showBack
+          ? Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: IconButton(
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                  color: AppColors.textPrimary,
+                ),
+                // maybePop, not pop: respects PopScope and never removes
+                // the last route.
+                onPressed: onBack ?? () => Navigator.maybePop(context),
+              ),
+            )
+          : null,
+      title: title == null
+          ? null
+          : Text(
+              title!,
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontSize: 18),
+            ),
     );
   }
 
@@ -630,10 +678,7 @@ final List<PasswordRequirement> passwordRequirements = [
     'One lowercase letter (a-z)',
     (p) => p.contains(RegExp(r'[a-z]')),
   ),
-  PasswordRequirement(
-    'One number (0-9)',
-    (p) => p.contains(RegExp(r'[0-9]')),
-  ),
+  PasswordRequirement('One number (0-9)', (p) => p.contains(RegExp(r'[0-9]'))),
   PasswordRequirement(
     'One special character (e.g. ! @ # \$ %)',
     (p) => p.contains(RegExp(r'[^A-Za-z0-9]')),

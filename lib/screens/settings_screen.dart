@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import 'personal_information_screen.dart';
@@ -23,30 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        centerTitle: true,
-        titleSpacing: 0,
-        leadingWidth: 56,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: IconButton(
-            icon: const Icon(
-              Icons.arrow_back_rounded,
-              color: AppColors.textPrimary,
-            ),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-        title: Text(
-          'Settings',
-          style: Theme.of(context).textTheme.titleMedium
-              ?.copyWith(fontSize: 18),
-        ),
-      ),
+      appBar: const MinimalBackAppBar(title: 'Settings'),
       body: ResponsiveContent(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
@@ -100,12 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: Accent.blue,
                 title: 'Change Password',
                 subtitle: 'Update your account password',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ChangePasswordScreen(),
-                  ),
-                ),
+                onTap: () => context.pushScreen(const ChangePasswordScreen()),
               ),
             ],
           ),

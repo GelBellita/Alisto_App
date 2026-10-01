@@ -22,8 +22,7 @@ class PersonalInformationScreen extends StatefulWidget {
       _PersonalInformationScreenState();
 }
 
-class _PersonalInformationScreenState
-    extends State<PersonalInformationScreen> {
+class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -162,8 +161,10 @@ class _PersonalInformationScreenState
         _showMessage('Details saved.');
       }
     } catch (e) {
-      _showMessage('Could not save your changes. Please try again.',
-          error: true);
+      _showMessage(
+        'Could not save your changes. Please try again.',
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -173,30 +174,7 @@ class _PersonalInformationScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        centerTitle: true,
-        titleSpacing: 0,
-        leadingWidth: 56,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: IconButton(
-            icon: const Icon(
-              Icons.arrow_back_rounded,
-              color: AppColors.textPrimary,
-            ),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-        title: Text(
-          'Personal Information',
-          style: Theme.of(context).textTheme.titleMedium
-              ?.copyWith(fontSize: 18),
-        ),
-      ),
+      appBar: const MinimalBackAppBar(title: 'Personal Information'),
       body: ResponsiveContent(
         child: StreamBuilder<dynamic>(
           stream: FirestoreService.userProfileStream(),
@@ -206,8 +184,8 @@ class _PersonalInformationScreenState
               _fullNameController.text = (data?['full_name'] ?? '').toString();
               _originalEmail = (data?['email'] ?? '').toString();
               _emailController.text = _originalEmail;
-              _phoneController.text =
-                  (data?['contact_number'] ?? '').toString();
+              _phoneController.text = (data?['contact_number'] ?? '')
+                  .toString();
               _initialized = true;
             }
 
@@ -250,12 +228,8 @@ class _PersonalInformationScreenState
                     color: Accent.blue,
                     title: 'Change Password',
                     subtitle: 'Update your account password',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ChangePasswordScreen(),
-                      ),
-                    ),
+                    onTap: () =>
+                        context.pushScreen(const ChangePasswordScreen()),
                   ),
                 ],
               ),
@@ -420,8 +394,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       return;
     }
     if (newPassword != confirm) {
-      _showMessage('New password and confirmation do not match.',
-          error: true);
+      _showMessage('New password and confirmation do not match.', error: true);
       return;
     }
 
@@ -438,7 +411,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       return;
     }
     _showMessage('Password updated.');
-    Navigator.pop(context);
+    Navigator.maybePop(context);
   }
 
   @override
@@ -492,8 +465,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                           ? Icons.visibility_off_rounded
                           : Icons.visibility_rounded,
                     ),
-                    onPressed: () =>
-                        setState(() => _obscureNew = !_obscureNew),
+                    onPressed: () => setState(() => _obscureNew = !_obscureNew),
                   ),
                 ),
                 const SizedBox(height: 8),

@@ -29,12 +29,7 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-        );
-      }
+      if (mounted) context.replaceScreen(const WelcomeScreen());
     });
   }
 
@@ -114,22 +109,12 @@ class WelcomeScreen extends StatelessWidget {
                 Expanded(flex: 1, child: Container()),
                 PrimaryButton(
                   label: 'Get Started',
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const SignupScreen(),
-                    ),
-                  ),
+                  onPressed: () => context.pushScreen(const SignupScreen()),
                 ),
                 const SizedBox(height: 12),
                 SecondaryButton(
                   label: 'I already have an account',
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const LoginScreen(),
-                    ),
-                  ),
+                  onPressed: () => context.pushScreen(const LoginScreen()),
                 ),
                 const SizedBox(height: 20),
               ],
@@ -186,14 +171,9 @@ class _LoginScreenState extends State<LoginScreen> {
       _showError(error);
       return;
     }
-    // AuthGate (in main.dart) will now pick up the login automatically
-    // and route to the right screen — but we also navigate directly so
-    // the user doesn't have to wait on this screen.
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (context) => const AuthRoutingGate()),
-      (route) => false,
-    );
+    // Same landing spot as sign-up: AuthRoutingGate decides between
+    // Device Choice and the dashboard.
+    context.goToRoot(const AuthRoutingGate());
   }
 
   void _showError(String message) {
@@ -266,12 +246,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: GestureDetector(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ForgotPasswordScreen(
-                          initialEmail: _emailController.text.trim(),
-                        ),
+                    onTap: () => context.pushScreen(
+                      ForgotPasswordScreen(
+                        initialEmail: _emailController.text.trim(),
                       ),
                     ),
                     child: const Text(
@@ -295,12 +272,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: RichSwitchLink(
                     prompt: "Don't have an account? ",
                     action: 'Sign up',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const SignupScreen(),
-                      ),
-                    ),
+                    // Replace, not push — so Login/Sign Up don't stack up
+                    // and back always returns to Welcome.
+                    onTap: () => context.replaceScreen(const SignupScreen()),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -438,7 +412,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   label: _sent ? 'Back to Login' : 'Send Reset Link',
                   loading: _loading,
                   onPressed: _sent
-                      ? () => Navigator.pop(context)
+                      ? () => Navigator.maybePop(context)
                       : _handleSend,
                 ),
                 const SizedBox(height: 24),
@@ -487,14 +461,8 @@ class _SignupScreenState extends State<SignupScreen> {
 
   void _onPasswordChanged() => setState(() {});
 
-  void _openLegal(int tab) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => TermsPrivacyScreen(initialTab: tab),
-      ),
-    );
-  }
+  void _openLegal(int tab) =>
+      context.pushScreen(TermsPrivacyScreen(initialTab: tab));
 
   @override
   void dispose() {
@@ -570,10 +538,9 @@ class _SignupScreenState extends State<SignupScreen> {
       _showError(error);
       return;
     }
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const DeviceChoiceScreen()),
-    );
+    // Same landing spot as login — a brand-new account has no device yet,
+    // so AuthRoutingGate shows Device Choice.
+    context.goToRoot(const AuthRoutingGate());
   }
 
   @override
@@ -728,12 +695,9 @@ class _SignupScreenState extends State<SignupScreen> {
                   child: RichSwitchLink(
                     prompt: 'Already have an account? ',
                     action: 'Login',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const LoginScreen(),
-                      ),
-                    ),
+                    // Replace, not push — so Login/Sign Up don't stack up
+                    // and back always returns to Welcome.
+                    onTap: () => context.replaceScreen(const LoginScreen()),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -762,65 +726,70 @@ class DeviceChoiceScreen extends StatefulWidget {
 class _DeviceChoiceScreenState extends State<DeviceChoiceScreen> {
   int _selected = 0;
 
-  void _handleContinue() {
-    if (_selected == 0) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const WifiSetupScreen(),
-        ),
-      );
-    } else {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const LinkDeviceScreen()),
-      );
-    }
+  // push (not pushReplacement) so back from WiFi setup / linking returns
+  // here instead of into an empty navigator (black screen).
+  void _handleContinue() => context.pushScreen(
+    _selected == 0 ? const WifiSetupScreen() : const LinkDeviceScreen(),
+  );
+
+  /// After login/sign-up this screen is the root (nothing below it), so
+  /// "back" means leaving the account and returning to Welcome instead
+  /// of popping the last route.
+  Future<void> _backToWelcome() async {
+    await AuthService.logout();
+    if (mounted) context.goToRoot(const WelcomeScreen());
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: const MinimalBackAppBar(),
-      body: SafeArea(
-        top: false,
-        child: ResponsiveContent(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 12),
-                Text(
-                  'Set Up Your Device',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Are you registering a new Alisto device, or joining one '
-                  'a family member already set up?',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 32),
-                _RoleCard(
-                  icon: Icons.home_rounded,
-                  title: 'Register a new device',
-                  subtitle: 'I have an Alisto device to set up.',
-                  selected: _selected == 0,
-                  onTap: () => setState(() => _selected = 0),
-                ),
-                const SizedBox(height: 16),
-                _RoleCard(
-                  icon: Icons.person_rounded,
-                  title: 'Join an existing device',
-                  subtitle: 'A family member already registered it.',
-                  selected: _selected == 1,
-                  onTap: () => setState(() => _selected = 1),
-                ),
-                const Spacer(),
-                PrimaryButton(label: 'Continue', onPressed: _handleContinue),
-                const SizedBox(height: 24),
-              ],
+    final isRoot = !Navigator.canPop(context);
+    return PopScope(
+      canPop: !isRoot,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _backToWelcome();
+      },
+      child: Scaffold(
+        appBar: MinimalBackAppBar(onBack: isRoot ? _backToWelcome : null),
+        body: SafeArea(
+          top: false,
+          child: ResponsiveContent(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 12),
+                  Text(
+                    'Set Up Your Device',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Are you registering a new Alisto device, or joining one '
+                    'a family member already set up?',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 32),
+                  _RoleCard(
+                    icon: Icons.home_rounded,
+                    title: 'Register a new device',
+                    subtitle: 'I have an Alisto device to set up.',
+                    selected: _selected == 0,
+                    onTap: () => setState(() => _selected = 0),
+                  ),
+                  const SizedBox(height: 16),
+                  _RoleCard(
+                    icon: Icons.person_rounded,
+                    title: 'Join an existing device',
+                    subtitle: 'A family member already registered it.',
+                    selected: _selected == 1,
+                    onTap: () => setState(() => _selected = 1),
+                  ),
+                  const Spacer(),
+                  PrimaryButton(label: 'Continue', onPressed: _handleContinue),
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
           ),
         ),
@@ -900,11 +869,11 @@ class _RoleCard extends StatelessWidget {
 // =========================================================
 // ROUTING GATE — decides where a just-logged-in user should land
 // =========================================================
-/// Used right after login to route the user to the correct place
-/// (device choice / registration / dashboard) based on what's already
-/// saved in Firestore. main.dart's AuthGate delegates straight to this
-/// widget once a Firebase Auth session exists, so this is the single
-/// source of truth for both post-login and app-startup routing.
+/// Used right after login/sign-up to route the user to the correct place
+/// (device choice or dashboard) based on what's already saved in
+/// Firestore. main.dart's AuthGate delegates straight to this widget once
+/// a Firebase Auth session exists, so this is the single source of truth
+/// for both post-login and app-startup routing.
 class AuthRoutingGate extends StatelessWidget {
   const AuthRoutingGate({super.key});
 
