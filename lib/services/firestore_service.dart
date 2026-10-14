@@ -137,6 +137,20 @@ class FirestoreService {
     return _userDoc.set({'fcm_token': token}, SetOptions(merge: true));
   }
 
+  // How long a read/commit may wait on the server before acknowledgeAlert()
+  // gives up on it and carries on with the local cache / queued write.
+  static const _serverWait = Duration(seconds: 4);
+
+  static Future<T> _serverOrCache<T>(
+    Future<T> Function(Source source) read,
+  ) async {
+    try {
+      return await read(Source.server).timeout(_serverWait);
+    } catch (_) {
+      return await read(Source.cache);
+    }
+  }
+
   /// Marks an alert as seen/handled by whoever tapped "Respond" — lets the
   /// Pi (and other family members' apps) know a human has acknowledged the
   /// emergency, not just that the notification was delivered.
@@ -151,9 +165,16 @@ class FirestoreService {
   /// episode is left "acknowledged: false" forever (or until a BHW/admin
   /// finds it separately), which also keeps its marker stuck on the admin
   /// map.
+  ///
+  /// Works with no internet: reads fall back to the local cache after a few
+  /// seconds, and the write itself is queued by Firestore's offline
+  /// persistence and syncs when the connection returns -- the card updates
+  /// immediately from the local write. Without these timeouts the spinner
+  /// on "Respond" never stopped while the phone was offline, because a
+  /// batch commit only completes once the SERVER acknowledges it.
   static Future<void> acknowledgeAlert(String alertId) async {
     final ref = _db.collection('emergency_alert').doc(alertId);
-    final snap = await ref.get();
+    final snap = await _serverOrCache((s) => ref.get(GetOptions(source: s)));
     final elderId = snap.data()?['elder_id'] as String?;
 
     final batch = _db.batch();
@@ -164,11 +185,12 @@ class FirestoreService {
     });
 
     if (elderId != null) {
-      final siblings = await _db
+      final siblingsQuery = _db
           .collection('emergency_alert')
           .where('elder_id', isEqualTo: elderId)
-          .where('alert_status', whereIn: ['PENDING', 'SENT'])
-          .get();
+          .where('alert_status', whereIn: ['PENDING', 'SENT']);
+      final siblings =
+          await _serverOrCache((s) => siblingsQuery.get(GetOptions(source: s)));
       for (final doc in siblings.docs) {
         if (doc.id == alertId || doc.data()['acknowledged'] == true) continue;
         batch.update(doc.reference, {
@@ -179,7 +201,9 @@ class FirestoreService {
       }
     }
 
-    await batch.commit();
+    // Offline, commit() would wait for the server forever; the write is
+    // already queued locally by now, so a timeout here is not a failure.
+    await batch.commit().timeout(_serverWait, onTimeout: () {});
   }
 
   // ---------------------------------------------------------
