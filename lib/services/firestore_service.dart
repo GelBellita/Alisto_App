@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/app_models.dart';
 import 'auth_service.dart';
+import 'shared_stream.dart';
 
 /// Firestore schema used by this app — matches app.py field-for-field.
 ///
@@ -58,7 +59,15 @@ import 'auth_service.dart';
 /// NOTE on Firestore indexes: elder-scoped queries only send a
 /// where('elder_id', ...) filter to Firestore (needs only the automatic
 /// single-field index every collection already has) and sort client-side
-/// in Dart — avoids requiring a hand-created composite index.
+/// in Dart — avoids requiring a hand-created composite index. The one
+/// exception is device_location (see latestLocationStream), which grows
+/// with every GPS ping and uses the existing composite index
+/// device_id ASC + recorded_at DESC so it reads one document, not all.
+///
+/// NOTE on read costs: every public *Stream() method returns a cached,
+/// shared stream (see [SharedStream]) instead of a new Firestore query
+/// per call. Widgets call these inside build(), so without the cache each
+/// rebuild restarted the listener and re-billed every matching document.
 /// Result of [FirestoreService.checkDevice] — the mobile equivalent of the
 /// JSON app.py's `/check_device` route returns. See that method's doc
 /// comment for what each field means.
@@ -112,6 +121,40 @@ class FirestoreService {
 
   /// Firestore allows at most 500 writes per batch; stay safely under it.
   static const int _batchLimit = 450;
+
+  // One shared listener per stream per signed-in user -- see SharedStream.
+  static final Map<String, SharedStream<dynamic>> _shared = {};
+  static String? _sharedForUid;
+
+  static Stream<T> _sharedStream<T>(String key, Stream<T> Function() source) {
+    // Signed out: hand back a plain stream so it errors the same way it
+    // always did, rather than throwing from inside a widget's build().
+    final uid = AuthService.currentUser?.uid;
+    if (uid == null) return source();
+    if (_sharedForUid != uid) {
+      // Signed out / switched accounts: drop the previous user's listeners.
+      _resetSharedStreams();
+      _sharedForUid = uid;
+    }
+    final existing = _shared[key];
+    if (existing != null) return (existing as SharedStream<T>).stream;
+    late final SharedStream<T> created;
+    created = SharedStream<T>(
+      source,
+      onDone: () {
+        if (identical(_shared[key], created)) _shared.remove(key);
+      },
+    );
+    _shared[key] = created;
+    return created.stream;
+  }
+
+  static void _resetSharedStreams() {
+    for (final s in _shared.values.toList()) {
+      s.dispose();
+    }
+    _shared.clear();
+  }
 
   static String get _uid {
     final user = AuthService.currentUser;
@@ -308,7 +351,7 @@ class FirestoreService {
   }
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>> userProfileStream() {
-    return _userDoc.snapshots();
+    return _sharedStream('userProfile', () => _userDoc.snapshots());
   }
 
   /// Updates the editable Personal Information fields on the user's
@@ -571,6 +614,8 @@ class FirestoreService {
     // cached null.
     _cachedSerial = null;
     _cachedSerialForUid = null;
+    // Shared listeners were opened against the old (or no) elder/device.
+    _resetSharedStreams();
   }
 
   static Future<void> updateSimNumber(String simNumber) async {
@@ -585,6 +630,10 @@ class FirestoreService {
   }
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>?> deviceStream() {
+    return _sharedStream('device', _deviceStream);
+  }
+
+  static Stream<DocumentSnapshot<Map<String, dynamic>>?> _deviceStream() {
     return _getElderId().asStream().asyncExpand((elderId) {
       return _db
           .collection('device')
@@ -612,30 +661,32 @@ class FirestoreService {
   /// The device's most recent GPS ping — mirrors what app.py's dashboard
   /// route reads from `device_location` (device_id, gps_lat, gps_long,
   /// location_address, recorded_at), written by the Raspberry Pi/Flask
-  /// server. Sorts client-side instead of `.orderBy()` on the server, so
-  /// this doesn't need a hand-created composite index. Emits null while no
-  /// device is linked yet or no location has ever been reported — never
-  /// throws, so a missing GPS fix doesn't take down the whole Home screen.
+  /// server. The Pi appends a new document on every fix, so this asks
+  /// Firestore for only the newest one (orderBy + limit(1), served by the
+  /// composite index device_id ASC + recorded_at DESC) instead of
+  /// listening to the device's whole history -- that used to cost one
+  /// read per ping ever recorded, every time Home or the location screen
+  /// opened. Emits null while no device is linked yet or no location has
+  /// ever been reported — never throws, so a missing GPS fix doesn't take
+  /// down the whole Home screen.
   static Stream<LocationModel?> latestLocationStream() {
+    return _sharedStream('latestLocation', _latestLocationStream);
+  }
+
+  static Stream<LocationModel?> _latestLocationStream() {
     return _getDeviceSerial().asStream().asyncExpand((serial) {
       if (serial == null) return Stream.value(null);
       return _db
           .collection('device_location')
           .where('device_id', isEqualTo: serial)
+          .orderBy('recorded_at', descending: true)
+          .limit(1)
           .snapshots()
-          .map((snapshot) {
-            if (snapshot.docs.isEmpty) return null;
-            final docs = snapshot.docs.toList()
-              ..sort((a, b) {
-                final aTime = a.data()['recorded_at'] as Timestamp?;
-                final bTime = b.data()['recorded_at'] as Timestamp?;
-                if (aTime == null && bTime == null) return 0;
-                if (aTime == null) return 1;
-                if (bTime == null) return -1;
-                return bTime.compareTo(aTime);
-              });
-            return LocationModel.fromDoc(docs.first);
-          });
+          .map(
+            (snapshot) => snapshot.docs.isEmpty
+                ? null
+                : LocationModel.fromDoc(snapshot.docs.first),
+          );
     });
   }
 
@@ -653,7 +704,10 @@ class FirestoreService {
   // ---------------------------------------------------------
   static Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
   contactsStream() {
-    return _elderScopedStream('emergency_contact', orderByField: 'created_at');
+    return _sharedStream(
+      'contacts',
+      () => _elderScopedStream('emergency_contact', orderByField: 'created_at'),
+    );
   }
 
   static Future<void> addContact({
@@ -682,9 +736,12 @@ class FirestoreService {
   // ---------------------------------------------------------
   static Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
   medicinesStream() {
-    return _elderScopedStream(
-      'medication_reminder',
-      orderByField: 'created_at',
+    return _sharedStream(
+      'medicines',
+      () => _elderScopedStream(
+        'medication_reminder',
+        orderByField: 'created_at',
+      ),
     );
   }
 
@@ -775,6 +832,10 @@ class FirestoreService {
   /// deleted alert disappears from History, the Home alert count and the
   /// Last Alert tile all at once.
   static Stream<List<AlertModel>> alertsStream() {
+    return _sharedStream('alerts', _alertsStream);
+  }
+
+  static Stream<List<AlertModel>> _alertsStream() {
     final uid = _uid;
     return _elderScopedStream(
       'emergency_alert',
@@ -794,11 +855,17 @@ class FirestoreService {
   }
 
   static Stream<int> alertsCountStream() {
-    return alertsStream().map((list) => list.length);
+    return _sharedStream(
+      'alertsCount',
+      () => alertsStream().map((list) => list.length),
+    );
   }
 
   static Stream<AlertModel?> latestAlertStream() {
-    return alertsStream().map((list) => list.isEmpty ? null : list.first);
+    return _sharedStream(
+      'latestAlert',
+      () => alertsStream().map((list) => list.isEmpty ? null : list.first),
+    );
   }
 
   /// SOFT delete: adds this user's uid to each alert's `hidden_for`
