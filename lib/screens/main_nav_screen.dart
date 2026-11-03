@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 import 'history_screen.dart';
-import 'contacts_screen.dart';
+import 'loved_ones_screen.dart';
 import 'profile_screen.dart';
 
 class MainNavScreen extends StatefulWidget {
@@ -22,7 +22,7 @@ class _MainNavScreenState extends State<MainNavScreen> {
   static const _pages = [
     HomeScreen(),
     HistoryScreen(),
-    ContactsScreen(),
+    LovedOnesScreen(),
     ProfileScreen(),
   ];
 
@@ -100,7 +100,7 @@ class _AppBottomNav extends StatelessWidget {
   static const _items = [
     (icon: Icons.home_rounded, label: 'Home'),
     (icon: Icons.history_rounded, label: 'History'),
-    (icon: Icons.contacts_rounded, label: 'Contacts'),
+    (icon: Icons.favorite_rounded, label: 'Loved Ones'),
     (icon: Icons.person_rounded, label: 'Profile'),
   ];
 

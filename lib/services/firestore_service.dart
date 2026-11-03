@@ -196,18 +196,31 @@ class FirestoreService {
     final linkQuery = await _db
         .collection('family_elder_link')
         .where('family_user_id', isEqualTo: uid)
-        .limit(1)
         .get();
-    if (linkQuery.docs.isEmpty) {
-      throw StateError(
-        'No device is linked to this account yet. Please complete device '
-        'registration first.',
-      );
+    // Skip loved ones that were deleted (soft delete, same as the web's
+    // My Loved Ones page) so Home/History/Medicines never show one.
+    for (final link in linkQuery.docs) {
+      final elderId = link.data()['elder_id'] as String?;
+      if (elderId == null) continue;
+      final elder = await _db.collection('elder_profile').doc(elderId).get();
+      if (!elder.exists || elder.data()?['deleted_at'] != null) continue;
+      _cachedElderId = elderId;
+      _cachedForUid = uid;
+      return elderId;
     }
-    final elderId = linkQuery.docs.first.data()['elder_id'] as String;
-    _cachedElderId = elderId;
-    _cachedForUid = uid;
-    return elderId;
+    throw StateError(
+      'No device is linked to this account yet. Please complete device '
+      'registration first.',
+    );
+  }
+
+  /// Called by LovedOnesService after a loved one is added, joined,
+  /// linked or deleted, so the next screen re-resolves the elder/device.
+  static void clearElderCache() {
+    _cachedElderId = null;
+    _cachedForUid = null;
+    _cachedSerial = null;
+    _cachedSerialForUid = null;
   }
 
   static String? _cachedSerial;
@@ -372,7 +385,8 @@ class FirestoreService {
   ///   show who it belongs to, and [canJoin] reflects whether there's still
   ///   room under [maxFamilyPerDevice] linked family accounts.
   static Future<DeviceCheckResult> checkDevice(String serial) async {
-    final trimmed = serial.trim();
+    // Same as the web's _clean_device_id(): no spaces, upper-case.
+    final trimmed = serial.replaceAll(RegExp(r'\s+'), '').toUpperCase();
     final deviceDoc = await _db.collection('device').doc(trimmed).get();
 
     if (!deviceDoc.exists) {
@@ -462,6 +476,7 @@ class FirestoreService {
     required String address,
     String relationship = '',
   }) async {
+    serial = serial.replaceAll(RegExp(r'\s+'), '').toUpperCase();
     final deviceRef = _db.collection('device').doc(serial);
     final deviceDoc = await deviceRef.get();
 
@@ -492,7 +507,10 @@ class FirestoreService {
         'date_of_birth': elderDob,
         'sex': elderSex,
         'address': address,
+        'occupation': null,
+        'photo_url': null,
         'created_at': FieldValue.serverTimestamp(),
+        'created_by': _uid,
         'deleted_at': null,
         'is_archived': 0,
       });
@@ -503,7 +521,8 @@ class FirestoreService {
         'serial_number': serial,
         'elder_id': elderId,
         'is_registered': true,
-        'registeredAt': FieldValue.serverTimestamp(),
+        'registered_at': FieldValue.serverTimestamp(),
+        'registered_by': _uid,
       });
     }
 
@@ -519,6 +538,7 @@ class FirestoreService {
     required String serial,
     required String relationship,
   }) async {
+    serial = serial.replaceAll(RegExp(r'\s+'), '').toUpperCase();
     final deviceDoc = await _db.collection('device').doc(serial).get();
     final deviceData = deviceDoc.data();
 
@@ -619,23 +639,20 @@ class FirestoreService {
   static Stream<LocationModel?> latestLocationStream() {
     return _getDeviceSerial().asStream().asyncExpand((serial) {
       if (serial == null) return Stream.value(null);
+      // Only the newest ping (needs index device_id ASC + recorded_at DESC,
+      // the same one the web uses) -- 1 read per update instead of every
+      // ping the device has ever written.
       return _db
           .collection('device_location')
           .where('device_id', isEqualTo: serial)
+          .orderBy('recorded_at', descending: true)
+          .limit(1)
           .snapshots()
-          .map((snapshot) {
-            if (snapshot.docs.isEmpty) return null;
-            final docs = snapshot.docs.toList()
-              ..sort((a, b) {
-                final aTime = a.data()['recorded_at'] as Timestamp?;
-                final bTime = b.data()['recorded_at'] as Timestamp?;
-                if (aTime == null && bTime == null) return 0;
-                if (aTime == null) return 1;
-                if (bTime == null) return -1;
-                return bTime.compareTo(aTime);
-              });
-            return LocationModel.fromDoc(docs.first);
-          });
+          .map(
+            (snapshot) => snapshot.docs.isEmpty
+                ? null
+                : LocationModel.fromDoc(snapshot.docs.first),
+          );
     });
   }
 

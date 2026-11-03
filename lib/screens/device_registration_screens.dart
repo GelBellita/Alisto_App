@@ -765,19 +765,13 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                AppTextField(
-                  label: 'Name',
-                  controller: _nameController,
-                ),
+                AppTextField(label: 'Name', controller: _nameController),
                 const SizedBox(height: 14),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: _DobPickerField(
-                        label: _dobLabel,
-                        onTap: _pickDob,
-                      ),
+                      child: _DobPickerField(label: _dobLabel, onTap: _pickDob),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -936,7 +930,9 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e is StateError ? e.message : 'Something went wrong: $e'),
+          content: Text(
+            e is StateError ? e.message : 'Something went wrong: $e',
+          ),
           backgroundColor: AppColors.error,
         ),
       );
@@ -1088,7 +1084,7 @@ class RegistrationCompleteScreen extends StatelessWidget {
                 ),
                 SizedBox(height: context.clampHeight(0.06, min: 32, max: 64)),
                 PrimaryButton(
-                  label: 'Add Contacts',
+                  label: 'View Loved Ones',
                   onPressed: () => Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(
