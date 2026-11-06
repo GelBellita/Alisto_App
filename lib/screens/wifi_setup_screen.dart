@@ -21,7 +21,7 @@ import 'device_registration_screens.dart';
 ///    via their phone's normal WiFi settings.
 /// 2. User comes back here and enters their HOME WiFi name + password.
 /// 3. This screen sends that info to the Pi (reachable at 10.42.0.1 while
-///    the Pi is in hotspot mode — see CLAUDE'S FIX note below).
+///    the Pi is in hotspot mode — see the note below).
 /// 4. On success, continues to RegisterDeviceStep1Screen to enter the
 ///    device's serial number. WiFi setup is required — there is no "skip"
 ///    option, since the device needs to be online for the rest of
@@ -49,7 +49,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   bool? _lastAttemptSucceeded;
 
   // Default gateway IP while the Pi is broadcasting its own hotspot.
-  // CLAUDE'S FIX: this was 192.168.4.1 (the typical hostapd default), but
+  // Note: this was 192.168.4.1 (the typical hostapd default), but
   // `nmcli device wifi hotspot` (what the Pi's start_setup_hotspot.sh
   // actually uses) assigns 10.42.0.1 by default -- confirmed directly on
   // the real device via `ip addr show wlan0`. The mismatch meant every
@@ -92,7 +92,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
     });
 
     try {
-      // CLAUDE'S FIX: the Pi's own connect_to_wifi() sequence (bring the
+      // Note: the Pi's own connect_to_wifi() sequence (bring the
       // hotspot down, rescan, then attempt the real connection with its
       // own 30s timeout) can legitimately take up to ~35s end to end
       // before this request even gets a response. The old 20s client
@@ -130,7 +130,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
         });
       }
     } catch (e) {
-      // CLAUDE'S FIX: the request itself can fail to complete for TWO very
+      // Note: the request itself can fail to complete for TWO very
       // different reasons that look identical from here: (a) Alisto
       // genuinely couldn't be reached, or (b) it actually succeeded --
       // connecting to the real WiFi makes Alisto leave the Alisto-Setup

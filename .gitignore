@@ -56,7 +56,6 @@ app.*.map.json
 .pub-cache/
 .pub/
 build/
-*.lock
 
 # Android
 android/.gradle/
@@ -82,10 +81,13 @@ ios/Flutter/Flutter.podspec
 *.iml
 *.iws
 
-# Firebase (IMPORTANT — contains API keys/secrets)
+# Firebase (contains project API keys)
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 lib/firebase_options.dart
 
 # macOS
 .DS_Store
+# AI assistant files
+.claude/
+CLAUDE.md

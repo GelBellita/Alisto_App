@@ -28,7 +28,7 @@ class _MainNavScreenState extends State<MainNavScreen> {
 
   /// Handles the system back button/gesture.
   ///
-  /// CLAUDE'S FIX: MainNavScreen is always reached via
+  /// Note: MainNavScreen is always reached via
   /// Navigator.pushAndRemoveUntil(..., (route) => false) — after login,
   /// after role selection (contact path), and after registration completes.
   /// That clears the ENTIRE navigation stack, so MainNavScreen ends up
