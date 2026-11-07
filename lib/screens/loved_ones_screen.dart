@@ -31,6 +31,7 @@ class _LovedOnesScreenState extends State<LovedOnesScreen> {
   _Filter _filter = _Filter.all;
   String _search = '';
   StreamSubscription<List<LovedOne>>? _sub;
+  Timer? _statusTimer;
 
   @override
   void initState() {
@@ -49,13 +50,25 @@ class _LovedOnesScreenState extends State<LovedOnesScreen> {
         if (mounted) setState(() => _error = e);
       },
     );
-    // No timer here on purpose: a periodic reload re-reads every loved
-    // one even while this tab is hidden (IndexedStack keeps it alive).
-    // Pull down to refresh instead.
+    // Device status only changes in Firestore (heartbeat), not in the link
+    // list above, so without a timer a device that just came online kept
+    // showing "Offline" until the user pulled down to refresh. Reload once
+    // a minute, but ONLY while this tab is on screen and the app is open:
+    // TickerMode is false for the hidden IndexedStack tab, so a hidden or
+    // backgrounded app costs no reads.
+    _statusTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (!mounted || !TickerMode.valuesOf(context).enabled) return;
+      if (WidgetsBinding.instance.lifecycleState !=
+          AppLifecycleState.resumed) {
+        return;
+      }
+      _refresh();
+    });
   }
 
   @override
   void dispose() {
+    _statusTimer?.cancel();
     _sub?.cancel();
     super.dispose();
   }

@@ -6,7 +6,8 @@ import '../widgets/common_widgets.dart';
 import '../services/firestore_service.dart';
 import 'main_nav_screen.dart';
 import 'qr_scanner_screen.dart';
-
+import '../constants/barangays.dart';
+import '../widgets/barangay_picker.dart';
 // =========================================================
 // STEP 1: SCAN / ENTER SERIAL
 // =========================================================
@@ -874,19 +875,18 @@ class SetHomeAddressScreen extends StatefulWidget {
 
 class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
   bool _loading = false;
+  String? _selectedBarangay;
   final _houseController = TextEditingController();
   final _zipController = TextEditingController();
   final _streetController = TextEditingController();
-  final _barangayController = TextEditingController();
-  final _cityController = TextEditingController();
-  final _provinceController = TextEditingController();
+  final _cityController = TextEditingController(text: kDefaultCity);
+  final _provinceController = TextEditingController(text: kDefaultProvince);
 
   @override
   void dispose() {
     _houseController.dispose();
     _zipController.dispose();
     _streetController.dispose();
-    _barangayController.dispose();
     _cityController.dispose();
     _provinceController.dispose();
     super.dispose();
@@ -894,7 +894,7 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
 
   Future<void> _handleSubmit() async {
     if (_streetController.text.trim().isEmpty ||
-        _barangayController.text.trim().isEmpty ||
+        _selectedBarangay == null ||
         _cityController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -905,12 +905,12 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
       return;
     }
 
-    // Joined into a single string — matches how app.py's
-    // _create_account_and_elder builds the elder_profile's address field.
+    // Same format sa app.py: house, street, barangay, city, province, zip.
+    // Ang barangay kay gikan sa listahan, so exact match na sa BHW.
     final address = [
       _houseController.text.trim(),
       _streetController.text.trim(),
-      _barangayController.text.trim(),
+      _selectedBarangay!,
       _cityController.text.trim(),
       _provinceController.text.trim(),
       _zipController.text.trim(),
@@ -924,6 +924,7 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
         elderDob: widget.dob,
         elderSex: widget.sex,
         address: address,
+        barangay: _selectedBarangay!,
       );
     } catch (e) {
       if (!mounted) return;
@@ -1008,28 +1009,28 @@ class _SetHomeAddressScreenState extends State<SetHomeAddressScreen> {
                   controller: _streetController,
                 ),
                 const SizedBox(height: 14),
+                BarangayPickerField(
+                  value: _selectedBarangay,
+                  onChanged: (v) => setState(() => _selectedBarangay = v),
+                ),
+                const SizedBox(height: 14),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: AppTextField(
-                        label: 'Barangay',
-                        controller: _barangayController,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
                     Expanded(
                       child: AppTextField(
                         label: 'City',
                         controller: _cityController,
                       ),
                     ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: AppTextField(
+                        label: 'Province',
+                        controller: _provinceController,
+                      ),
+                    ),
                   ],
-                ),
-                const SizedBox(height: 14),
-                AppTextField(
-                  label: 'Province',
-                  controller: _provinceController,
                 ),
                 const SizedBox(height: 24),
                 PrimaryButton(

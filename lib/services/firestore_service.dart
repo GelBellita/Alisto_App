@@ -16,7 +16,10 @@ import 'auth_service.dart';
 ///   full_name, date_of_birth, address (single joined string), created_at,
 ///   deleted_at (null), is_archived (0), sex (app-only extra; Flask
 ///   doesn't read/write this field, so it's safe to keep for the app's
-///   own display without breaking anything on the web side)
+///   own display without breaking anything on the web side),
+///   barangay (app-only extra; the exact barangay picked from the list.
+///   The BHW portal matches on the barangay INSIDE the address string,
+///   so the same value is also part of `address`.)
 ///
 /// family_elder_link/{linkId}
 ///   family_user_id, elder_id, relationship, created_at (Flask doesn't set
@@ -279,6 +282,16 @@ class FirestoreService {
     return serial;
   }
 
+  // Public doors to the private lookups above, for CarePlanService.
+  /// The signed-in family member's linked elder (throws StateError if no
+  /// device has been registered yet).
+  static Future<String> elderIdForCurrentUser() => _getElderId();
+
+  /// That elder's device serial, or null.
+  static Future<String?> deviceSerialForCurrentUser() => _getDeviceSerial();
+
+  static String get currentUserId => _uid;
+
   /// Number of family accounts currently linked to [elderId] — mirrors
   /// the web's _family_link_count(). Since every account this app creates
   /// has role == 'family', this simplifies to a straight document count.
@@ -492,12 +505,17 @@ class FirestoreService {
   ///   instead (up to maxFamilyPerDevice family accounts per elder), no
   ///   duplicate elder_profile is created.
   /// Either way, a family_elder_link row is added.
+  ///
+  /// [barangay] is the exact name picked from kBarangays. It's already
+  /// part of [address] (that's what the BHW portal matches on); it's also
+  /// stored as its own field for cleaner querying later.
   static Future<void> registerDevice({
     required String serial,
     required String elderFullName,
     required String elderDob,
     required String elderSex,
     required String address,
+    String barangay = '',
     String relationship = '',
   }) async {
     serial = serial.replaceAll(RegExp(r'\s+'), '').toUpperCase();
@@ -533,6 +551,7 @@ class FirestoreService {
         'address': address,
         'occupation': null,
         'photo_url': null,
+        'barangay': barangay,
         'created_at': FieldValue.serverTimestamp(),
         'created_by': _uid,
         'deleted_at': null,

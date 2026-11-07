@@ -130,6 +130,14 @@ class AlertModel {
   final List<String> lines;
   final bool acknowledged;
 
+  /// 'PENDING' | 'SENT' | 'CANCELLED' | ... -- what the device reports. 'SENT'
+  /// means the emergency SMS really went out (not a cancelled false alarm).
+  final String status;
+
+  /// When the emergency happened (the device's own time, even if it was
+  /// uploaded later).
+  final DateTime? triggeredAt;
+
   AlertModel({
     required this.id,
     required this.title,
@@ -137,6 +145,8 @@ class AlertModel {
     required this.lines,
     this.type = 'emergency',
     this.acknowledged = false,
+    this.status = '',
+    this.triggeredAt,
   });
 
   factory AlertModel.fromDoc(QueryDocumentSnapshot doc) {
@@ -147,7 +157,27 @@ class AlertModel {
       time: _formatTriggeredAt(data['date_triggered'] as Timestamp?),
       lines: List<String>.from(data['lines'] ?? const []),
       acknowledged: data['acknowledged'] == true,
+      status: (data['alert_status'] as String?) ?? '',
+      triggeredAt: (data['date_triggered'] as Timestamp?)?.toDate(),
     );
+  }
+
+  /// How long after it happens an emergency still deserves the full-screen
+  /// card when the app is opened: about as long as the phone's alarm rings
+  /// (3 minutes). An older one (for example an alert the device uploaded
+  /// after being offline) is just listed quietly in History.
+  static const Duration emergencyCardWindow = Duration(minutes: 3);
+
+  /// True when this alert should pop up the floating "emergency" card now.
+  /// [alreadyShown] holds alert IDs the card was already shown for, so the
+  /// same emergency never opens it twice (push and Firestore both report it).
+  bool needsEmergencyCard(DateTime now, Set<String> alreadyShown) {
+    if (type != 'emergency' || acknowledged || status != 'SENT') return false;
+    if (alreadyShown.contains(id)) return false;
+    final at = triggeredAt;
+    if (at == null) return false;
+    final age = now.difference(at);
+    return age <= emergencyCardWindow && age >= const Duration(seconds: -30);
   }
 
   static String _formatTriggeredAt(Timestamp? ts) {

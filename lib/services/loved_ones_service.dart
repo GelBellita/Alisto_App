@@ -75,7 +75,10 @@ class LovedOnesService {
   static const int maxFamilyPerDevice = 5; // MAX_FAMILY_PER_DEVICE
   static const int maxContactsPerElder = 10; // MAX_CONTACTS_PER_ELDER
   static const int photoMaxBytes = 700 * 1024; // LOVED_ONE_PHOTO_MAX_BYTES
-  static const Duration deviceOnlineWindow = Duration(minutes: 10);
+  // The Pi writes last_seen every 30 s, so 3 min = 6 missed heartbeats. The
+  // web uses 10 min, but that made the app keep showing "Online" for up to
+  // 10 minutes after the device lost power.
+  static const Duration deviceOnlineWindow = Duration(minutes: 3);
   static const List<String> contactTypes = ['FAMILY', 'BHW', 'OTHER'];
   static const Set<String> _missedMedStatuses = {'missed', 'overdue'};
 

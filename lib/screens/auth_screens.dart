@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
+import '../services/notification_service.dart';
 import 'device_registration_screens.dart';
 import 'legal_screens.dart';
 import 'main_nav_screen.dart';
@@ -50,9 +51,9 @@ class _SplashScreenState extends State<SplashScreen> {
                 color: AppColors.primary,
               ),
             ),
+            // No separate "Alisto" text: the logo image already contains
+            // the Alisto wordmark.
             const SizedBox(height: 16),
-            Text('Alisto', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 4),
             Text(
               'Help, Always Within Reach.',
               style: Theme.of(context).textTheme.bodySmall,
@@ -879,6 +880,10 @@ class AuthRoutingGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Right after login/sign-up the screen stack was replaced and AuthGate
+    // (main.dart) is gone, so this is where the push token gets registered
+    // for the account that just signed in. No-op if already done.
+    NotificationService.init();
     return StreamBuilder<dynamic>(
       stream: FirestoreService.userProfileStream(),
       builder: (context, snapshot) {

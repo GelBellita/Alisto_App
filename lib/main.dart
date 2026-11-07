@@ -54,6 +54,11 @@ class AlistoApp extends StatelessWidget {
       final title = message.data['title'] as String? ?? 'ALISTO Emergency Alert';
       final body = message.data['body'] as String? ?? '';
 
+      // The live alert list (EmergencyAlertWatcher) may already have opened
+      // the card for this same emergency -- never show it twice.
+      final alertId = message.data['alert_id'] as String?;
+      if (alertId != null && !EmergencyCardTracker.shown.add(alertId)) return;
+
       final navigatorContext = rootNavigatorKey.currentState?.overlay?.context;
       if (navigatorContext == null) return;
 

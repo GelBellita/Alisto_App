@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
+import '../widgets/emergency_alert_dialog.dart';
 import 'home_screen.dart';
 import 'history_screen.dart';
 import 'loved_ones_screen.dart';
@@ -69,23 +70,25 @@ class _MainNavScreenState extends State<MainNavScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
-        final shouldExit = await _handleBackButton();
-        if (shouldExit) {
-          SystemNavigator.pop();
-        }
-      },
-      child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: IndexedStack(index: _index, children: _pages),
-        ),
-        bottomNavigationBar: _AppBottomNav(
-          currentIndex: _index,
-          onTap: (i) => setState(() => _index = i),
+    return EmergencyAlertWatcher(
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) async {
+          if (didPop) return;
+          final shouldExit = await _handleBackButton();
+          if (shouldExit) {
+            SystemNavigator.pop();
+          }
+        },
+        child: Scaffold(
+          body: SafeArea(
+            bottom: false,
+            child: IndexedStack(index: _index, children: _pages),
+          ),
+          bottomNavigationBar: _AppBottomNav(
+            currentIndex: _index,
+            onTap: (i) => setState(() => _index = i),
+          ),
         ),
       ),
     );

@@ -1,8 +1,77 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../main.dart' show rootNavigatorKey;
+import '../models/app_models.dart';
 import '../services/alarm_service.dart';
 import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
+
+/// Which emergencies the full-screen card was already shown for during this
+/// app session -- a push and the live alert list both report the same
+/// emergency, and the card must open only once for it.
+class EmergencyCardTracker {
+  static final Set<String> shown = <String>{};
+}
+
+/// Opens [EmergencyAlertDialog] for any recent emergency that nobody has
+/// acknowledged yet, whenever the app is open -- including when it is opened
+/// AFTER the phone already started ringing. The push handler (main.dart)
+/// only shows the card if the app was in the foreground at the exact moment
+/// the push arrived; with the app in the background or the phone locked,
+/// only the native alarm rang and nothing was shown once the app opened.
+/// Wrap the signed-in screen with this.
+class EmergencyAlertWatcher extends StatefulWidget {
+  final Widget child;
+  const EmergencyAlertWatcher({super.key, required this.child});
+
+  @override
+  State<EmergencyAlertWatcher> createState() => _EmergencyAlertWatcherState();
+}
+
+class _EmergencyAlertWatcherState extends State<EmergencyAlertWatcher> {
+  StreamSubscription<List<AlertModel>>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = FirestoreService.alertsStream().listen(
+      _onAlerts,
+      onError: (_) {}, // best-effort: the push still works without this
+    );
+  }
+
+  void _onAlerts(List<AlertModel> alerts) {
+    final now = DateTime.now();
+    for (final alert in alerts) {
+      if (!alert.needsEmergencyCard(now, EmergencyCardTracker.shown)) continue;
+      EmergencyCardTracker.shown.add(alert.id);
+      final overlay = rootNavigatorKey.currentState?.overlay?.context;
+      if (overlay == null) continue;
+      showDialog<void>(
+        context: overlay,
+        barrierDismissible: false,
+        builder: (_) => EmergencyAlertDialog(
+          title: alert.title.isEmpty ? 'ALISTO Emergency Alert' : alert.title,
+          body: '${alert.title.isEmpty ? 'Emergency' : alert.title}. '
+              'Please check immediately.',
+          alertId: alert.id,
+        ),
+      );
+      break; // one card at a time; acknowledging also acknowledges the rest
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
 
 /// Full-attention floating card shown while the app is open and a push
 /// notification for a real emergency arrives (see main.dart's

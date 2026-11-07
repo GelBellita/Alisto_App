@@ -9,13 +9,42 @@ import '../widgets/common_widgets.dart';
 import '../widgets/user_avatar.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
+import '../services/notification_service.dart';
 import 'settings_screen.dart';
 import 'auth_screens.dart';
+import 'care_plan_screens.dart';
 import 'help_support_screen.dart';
 import 'legal_screens.dart';
 import 'personal_information_screen.dart';
 import 'home_screen.dart' show DeviceLocationScreen;
 import 'wifi_setup_screen.dart';
+
+/// The full text of the push-notification status (it is long when something
+/// failed) with a button to try registering this phone again.
+void _showNotificationStatus(BuildContext context) {
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) => ValueListenableBuilder<String>(
+      valueListenable: NotificationService.status,
+      builder: (_, status, _) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Notification status'),
+        content: SingleChildScrollView(child: SelectableText(status)),
+        actions: [
+          TextButton(
+            onPressed: () => NotificationService.refreshToken(),
+            child: const Text('Try again'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -84,6 +113,32 @@ class ProfileScreen extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (context) => const DeviceInformationScreen(),
                   ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              _ProfileNavTile(
+                icon: Icons.workspace_premium_rounded,
+                color: Accent.green,
+                title: 'Care Plan',
+                subtitle: 'Subscription, benefits and GCash payments',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const CarePlanScreen(),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Shows whether this phone is registered for emergency pushes
+              // (or the exact error), with a retry.
+              ValueListenableBuilder<String>(
+                valueListenable: NotificationService.status,
+                builder: (context, status, _) => _ProfileNavTile(
+                  icon: Icons.notifications_active_rounded,
+                  color: status.startsWith('Ready') ? Accent.green : Accent.yellow,
+                  title: 'Notification status',
+                  subtitle: status,
+                  onTap: () => _showNotificationStatus(context),
                 ),
               ),
               const SizedBox(height: 10),

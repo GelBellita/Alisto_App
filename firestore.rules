@@ -73,5 +73,64 @@ service cloud.firestore {
     match /medication_reminder/{reminderId} {
       allow read, write: if signedIn();
     }
+
+    // ---- Care plan (subscription) ----
+    // The plan and QR settings are what the family sees before paying;
+    // only those two documents are readable (never a listing of app_settings).
+    match /care_plan/{planId} {
+      allow read: if signedIn();
+    }
+
+    match /app_settings/{settingId} {
+      allow get: if signedIn()
+        && (settingId == 'plan_qr_codes' || settingId == 'payment_methods');
+    }
+
+    match /subscription/{elderId} {
+      allow read: if signedIn();
+    }
+
+    // A family member can send a new payment (always 'pending', GCash only,
+    // a real plan length, a 13-digit reference) and read their OWN payments.
+    // Only the admin (website) approves or rejects them.
+    match /payment/{paymentId} {
+      allow read: if signedIn() && resource.data.paid_by_user_id == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.paid_by_user_id == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.method == 'gcash'
+        && request.resource.data.months in [1, 3, 6, 12]
+        && request.resource.data.reference_no.matches('^[0-9]{13}$');
+    }
+
+    // One tiny document per GCash reference number: create-only, so the same
+    // reference can never be submitted twice (not even by another account).
+    match /payment_reference/{reference} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && reference.matches('^[0-9]{13}$')
+        && request.resource.data.user_id == request.auth.uid;
+    }
+
+    // When a payment is submitted, the app opens the same 'pay_<id>' inbox
+    // thread the website does, so the admin team is notified. Create-only,
+    // and only for a payment thread the sender is part of.
+    match /inbox_thread/{threadId} {
+      allow create: if signedIn()
+        && threadId.matches('pay_.*')
+        && request.resource.data.type == 'care_plan'
+        && request.resource.data.created_by == request.auth.uid
+        && request.auth.uid in request.resource.data.participant_ids
+        && 'admins' in request.resource.data.participant_ids;
+
+      match /messages/{messageId} {
+        allow create: if signedIn()
+          && threadId.matches('pay_.*')
+          && request.resource.data.sender_id == request.auth.uid
+          && request.auth.uid in getAfter(
+               /databases/$(database)/documents/inbox_thread/$(threadId)
+             ).data.participant_ids;
+      }
+    }
   }
 }

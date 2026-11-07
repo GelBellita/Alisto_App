@@ -8,6 +8,7 @@ import '../widgets/common_widgets.dart';
 import '../widgets/user_avatar.dart';
 import '../services/firestore_service.dart';
 import '../models/app_models.dart';
+import 'care_plan_screens.dart';
 import 'medicine_screens.dart';
 import 'history_screen.dart';
 
@@ -39,6 +40,9 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: 18),
                 const _DeviceStatusCard(),
                 const SizedBox(height: 16),
+                // Shows only when the care plan needs attention (none,
+                // ending soon, expired, payment rejected or under review).
+                const CarePlanBanner(),
                 const _MedicineReminderCard(),
                 const SizedBox(height: 18),
                 const SectionLabel('Quick Actions'),
