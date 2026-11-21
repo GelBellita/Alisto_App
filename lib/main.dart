@@ -87,7 +87,6 @@ class AlistoApp extends StatelessWidget {
           // The Pi may add these to the push data; null when it does not.
           detail: AlertModel.detailLineFor(
             triggerType: message.data['trigger_type'] as String?,
-            detectedPhrase: message.data['detected_phrase'] as String?,
           ),
         ),
       );

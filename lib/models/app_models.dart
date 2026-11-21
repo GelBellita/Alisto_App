@@ -142,11 +142,6 @@ class AlertModel {
   /// it as `trigger_type`). Empty on alerts from before it was recorded.
   final String triggerType;
 
-  /// What the device heard (the speech-to-text of the spoken phrase), saved by
-  /// the Pi as `detected_phrase`. Null for the SOS button and for alerts from
-  /// before it was recorded.
-  final String? detectedPhrase;
-
   AlertModel({
     required this.id,
     required this.title,
@@ -157,24 +152,21 @@ class AlertModel {
     this.status = '',
     this.triggeredAt,
     this.triggerType = '',
-    this.detectedPhrase,
   });
 
-  /// The short "how was this triggered" line shown on the alert: the SOS
-  /// button, or the phrase the device heard. Null when neither is known (an
-  /// older alert), so nothing is shown rather than a made-up value.
-  String? get detailLine =>
-      detailLineFor(triggerType: triggerType, detectedPhrase: detectedPhrase);
+  /// The short "how was this triggered" line shown on the alert: only for the
+  /// SOS button. A voice alert shows no extra line -- the family sees the
+  /// emergency category (the title and message); the words the device heard
+  /// are only in the SMS. Null for everything else, so nothing is made up.
+  String? get detailLine => detailLineFor(triggerType: triggerType);
 
-  /// Same line, built from raw values -- the push notification carries them
-  /// as plain strings (see main.dart).
-  static String? detailLineFor({String? triggerType, String? detectedPhrase}) {
+  /// Same line, built from the raw value -- the push notification carries it
+  /// as a plain string (see main.dart).
+  static String? detailLineFor({String? triggerType}) {
     if ((triggerType ?? '').toUpperCase() == 'BUTTON') {
       return 'Triggered by: SOS button';
     }
-    final phrase = (detectedPhrase ?? '').trim();
-    if (phrase.isEmpty) return null;
-    return 'Detected phrase: “$phrase”';
+    return null;
   }
 
   factory AlertModel.fromDoc(QueryDocumentSnapshot doc) {
@@ -188,7 +180,6 @@ class AlertModel {
       status: (data['alert_status'] as String?) ?? '',
       triggeredAt: (data['date_triggered'] as Timestamp?)?.toDate(),
       triggerType: (data['trigger_type'] as String?) ?? '',
-      detectedPhrase: data['detected_phrase'] as String?,
     );
   }
 
