@@ -37,6 +37,12 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // R8 shrinking/obfuscation is switched off as a test: the QR
+            // camera failed to start in the release APK ("Object.getClass()
+            // on a null object reference" inside the camera library). The
+            // APK is a few MB bigger; nothing else changes.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
