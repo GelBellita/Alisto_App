@@ -111,7 +111,7 @@ class FirestoreService {
   static const int maxPhotoBytes = 700 * 1024;
   // Matches app.py's MAX_FAMILY_PER_DEVICE — was 3 here, which is why the
   // app was refusing joins the web app would still allow.
-  static const int maxFamilyPerDevice = 5;
+  static const int maxFamilyPerDevice = 20;
 
   /// Firestore allows at most 500 writes per batch; stay safely under it.
   static const int _batchLimit = 450;
@@ -669,6 +669,22 @@ class FirestoreService {
   static Future<void> setDeviceSimNumber(String serial, String simNumber) {
     return _db.collection('device').doc(serial).update({
       'simNumber': simNumber,
+    });
+  }
+
+  /// Asks the device to forget every saved WiFi network and open its
+  /// "Alisto-Setup" hotspot, so it can be connected to a new network. The Pi
+  /// listens on this one document (alisto_main.py's
+  /// device_command_watcher_loop) and ignores a request older than 10 minutes,
+  /// so it only works while the device is online. [serial] is the device
+  /// doc's own ID.
+  static Future<void> requestForgetWifi(String serial) {
+    return _db.collection('device_command').doc(serial).set({
+      'action': 'forget_wifi',
+      'requested_by': _uid,
+      'requested_at': FieldValue.serverTimestamp(),
+      // Lets the Pi tell a new request from one it already handled.
+      'request_id': '${DateTime.now().microsecondsSinceEpoch}-$_uid',
     });
   }
 

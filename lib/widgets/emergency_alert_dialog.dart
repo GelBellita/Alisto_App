@@ -57,6 +57,7 @@ class _EmergencyAlertWatcherState extends State<EmergencyAlertWatcher> {
           body: '${alert.title.isEmpty ? 'Emergency' : alert.title}. '
               'Please check immediately.',
           alertId: alert.id,
+          detail: alert.detailLine,
         ),
       );
       break; // one card at a time; acknowledging also acknowledges the rest
@@ -84,11 +85,16 @@ class EmergencyAlertDialog extends StatefulWidget {
   final String body;
   final String? alertId;
 
+  /// "Detected phrase: ..." or "Triggered by: SOS button" (see
+  /// AlertModel.detailLine); null when the device did not report it.
+  final String? detail;
+
   const EmergencyAlertDialog({
     super.key,
     required this.title,
     required this.body,
     this.alertId,
+    this.detail,
   });
 
   @override
@@ -155,6 +161,19 @@ class _EmergencyAlertDialogState extends State<EmergencyAlertDialog> {
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 14.5, color: AppColors.textSecondary, height: 1.4),
               ),
+              if (widget.detail != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  widget.detail!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                    height: 1.35,
+                  ),
+                ),
+              ],
               const SizedBox(height: 26),
               SizedBox(
                 width: double.infinity,

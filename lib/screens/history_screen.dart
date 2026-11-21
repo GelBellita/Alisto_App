@@ -179,32 +179,47 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             ),
                           ),
                     const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        // Scrolls sideways on very narrow phones instead
-                        // of overflowing when "Select all" is showing.
-                        Expanded(
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: _SegmentedTabs(
-                              labels: _tabs,
-                              index: _tab,
-                              onChanged: (i) => setState(() {
-                                _tab = i;
-                                _selected.clear();
-                              }),
+                    // The filter chips always get the full width, so none of
+                    // them is cut off while selecting (they used to share
+                    // this row with "Select all", which clipped "System").
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: _SegmentedTabs(
+                        labels: _tabs,
+                        index: _tab,
+                        onChanged: (i) => setState(() {
+                          _tab = i;
+                          _selected.clear();
+                        }),
+                      ),
+                    ),
+                    if (_selectMode) ...[
+                      const SizedBox(height: 10),
+                      // "N notifications" on the left, "Select all ◯" on the
+                      // right, the circle lined up with the cards' circles.
+                      Row(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Text(
+                              '${visible.length} '
+                              'notification${visible.length == 1 ? '' : 's'}',
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                           ),
-                        ),
-                        if (_selectMode)
+                          const Spacer(),
                           _SelectAllButton(
                             allSelected: allSelected,
                             onTap: visible.isEmpty
                                 ? null
                                 : () => _toggleAll(visible),
                           ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     _buildList(snapshot, visible),
                   ],
@@ -383,8 +398,8 @@ class _SelectionHeader extends StatelessWidget {
   }
 }
 
-/// "Select all ◯" — sits at the right end of the filter-tabs row, lined
-/// up with the check circles on the cards below it.
+/// "Select all ◯" — on its own row under the filter tabs, lined up with the
+/// check circles on the cards below it.
 class _SelectAllButton extends StatelessWidget {
   final bool allSelected;
   final VoidCallback? onTap;
@@ -706,6 +721,21 @@ class _HistoryEntryCardState extends State<_HistoryEntryCard> {
                           fontSize: 11.5,
                           color: AppColors.textSecondary,
                           height: 1.3,
+                        ),
+                      ),
+                    // How it was triggered: the SOS button, or the phrase the
+                    // device heard (shown only when known).
+                    if (alert.detailLine != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text(
+                          alert.detailLine!,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary,
+                            height: 1.3,
+                          ),
                         ),
                       ),
                     // Respond button is hidden while selecting so a tap

@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
 import 'theme/app_theme.dart';
+import 'models/app_models.dart' show AlertModel;
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
 import 'screens/auth_screens.dart';
@@ -83,6 +84,11 @@ class AlistoApp extends StatelessWidget {
           title: title,
           body: body,
           alertId: message.data['alert_id'],
+          // The Pi may add these to the push data; null when it does not.
+          detail: AlertModel.detailLineFor(
+            triggerType: message.data['trigger_type'] as String?,
+            detectedPhrase: message.data['detected_phrase'] as String?,
+          ),
         ),
       );
     };

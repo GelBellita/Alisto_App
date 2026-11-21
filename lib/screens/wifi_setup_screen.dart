@@ -45,6 +45,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   final _passwordController = TextEditingController();
 
   bool _isConnecting = false;
+  bool _obscurePassword = true; // eye icon: lets you check the WiFi password
   String? _statusMessage;
   bool? _lastAttemptSucceeded;
 
@@ -236,8 +237,17 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                 AppTextField(
                   label: 'WiFi Password',
                   hint: '••••••••',
-                  obscureText: true,
+                  obscureText: _obscurePassword,
                   controller: _passwordController,
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off_rounded
+                          : Icons.visibility_rounded,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                  ),
                 ),
                 const SizedBox(height: 24),
                 PrimaryButton(

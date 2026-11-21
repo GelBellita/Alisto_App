@@ -72,7 +72,7 @@ class LovedOnesService {
   }
 
   // Same constants as app.py.
-  static const int maxFamilyPerDevice = 5; // MAX_FAMILY_PER_DEVICE
+  static const int maxFamilyPerDevice = 20; // MAX_FAMILY_PER_DEVICE
   static const int maxContactsPerElder = 10; // MAX_CONTACTS_PER_ELDER
   static const int photoMaxBytes = 700 * 1024; // LOVED_ONE_PHOTO_MAX_BYTES
   // The Pi writes last_seen every 30 s, so 3 min = 6 missed heartbeats. The

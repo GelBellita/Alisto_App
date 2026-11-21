@@ -51,6 +51,17 @@ service cloud.firestore {
       allow update: if signedIn();
     }
 
+    // A request for the device (today only "forget_wifi", from Device
+    // Information). The app can only write it; the Pi (Admin SDK) listens to
+    // it, acts on it and deletes it. Nothing else can be asked this way.
+    match /device_command/{serial} {
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(
+             ['action', 'requested_by', 'requested_at', 'request_id'])
+        && request.resource.data.action == 'forget_wifi'
+        && request.resource.data.requested_by == request.auth.uid;
+    }
+
     match /elder_profile/{elderId} {
       allow read, create, update: if signedIn();
     }

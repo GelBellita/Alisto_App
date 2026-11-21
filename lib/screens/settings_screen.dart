@@ -4,21 +4,13 @@ import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import 'personal_information_screen.dart';
 
-// Note: these toggles are local UI state only for now — wiring them to
-// Firestore (e.g. users/{uid}.notificationSettings) is a simple follow-up
-// if/when you want notification preferences to persist and sync.
-class SettingsScreen extends StatefulWidget {
+// The Emergency Alerts / Medicine Reminders / Device Alerts / Location Updates
+// switches were removed on purpose: they only changed a value on this screen
+// and did nothing else (alerts and reminders are delivered whatever they were
+// set to), so they gave a false sense of control. Add a setting back only when
+// it is saved (Firestore) AND actually respected by the app.
+class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
-
-  @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends State<SettingsScreen> {
-  bool _emergencyAlerts = true;
-  bool _medicineReminders = true;
-  bool _deviceAlerts = true;
-  bool _locationUpdates = true;
 
   @override
   Widget build(BuildContext context) {
@@ -31,46 +23,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const _SettingsGroupLabel('Notifications'),
-              const SizedBox(height: 8),
-              _ToggleTile(
-                icon: Icons.notifications_active_rounded,
-                color: AppColors.error,
-                title: 'Emergency Alerts',
-                subtitle: 'Get notified for emergency events',
-                value: _emergencyAlerts,
-                onChanged: (v) => setState(() => _emergencyAlerts = v),
-              ),
-              const SizedBox(height: 10),
-              _ToggleTile(
-                icon: Icons.medication_rounded,
-                color: Accent.blue,
-                title: 'Medicine Reminders',
-                subtitle: 'Receive reminders for medicines',
-                value: _medicineReminders,
-                onChanged: (v) => setState(() => _medicineReminders = v),
-              ),
-              const SizedBox(height: 10),
-              _ToggleTile(
-                icon: Icons.phone_android_rounded,
-                color: Accent.yellow,
-                title: 'Device Alerts',
-                subtitle: 'Notifications about device status',
-                value: _deviceAlerts,
-                onChanged: (v) => setState(() => _deviceAlerts = v),
-              ),
-              const SizedBox(height: 18),
-              const _SettingsGroupLabel('App & Data'),
-              const SizedBox(height: 8),
-              _ToggleTile(
-                icon: Icons.location_on_rounded,
-                color: Accent.purple,
-                title: 'Location Updates',
-                subtitle: 'Allow location access for tracking',
-                value: _locationUpdates,
-                onChanged: (v) => setState(() => _locationUpdates = v),
-              ),
-              const SizedBox(height: 18),
               const _SettingsGroupLabel('Security'),
               const SizedBox(height: 8),
               _ProfileNavTileLike(
@@ -100,77 +52,6 @@ class _SettingsGroupLabel extends StatelessWidget {
         fontSize: 13,
         fontWeight: FontWeight.w700,
         color: AppColors.textPrimary,
-      ),
-    );
-  }
-}
-
-class _ToggleTile extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-  const _ToggleTile({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.14),
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: Icon(icon, size: 19, color: color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13.5,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: Colors.white,
-            activeTrackColor: AppColors.primary,
-            inactiveThumbColor: Colors.white,
-            inactiveTrackColor: AppColors.border,
-          ),
-        ],
       ),
     );
   }

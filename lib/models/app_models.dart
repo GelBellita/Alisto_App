@@ -138,6 +138,15 @@ class AlertModel {
   /// uploaded later).
   final DateTime? triggeredAt;
 
+  /// 'VOICE' or 'BUTTON' -- how the emergency was started (the device writes
+  /// it as `trigger_type`). Empty on alerts from before it was recorded.
+  final String triggerType;
+
+  /// What the device heard (the speech-to-text of the spoken phrase), saved by
+  /// the Pi as `detected_phrase`. Null for the SOS button and for alerts from
+  /// before it was recorded.
+  final String? detectedPhrase;
+
   AlertModel({
     required this.id,
     required this.title,
@@ -147,7 +156,26 @@ class AlertModel {
     this.acknowledged = false,
     this.status = '',
     this.triggeredAt,
+    this.triggerType = '',
+    this.detectedPhrase,
   });
+
+  /// The short "how was this triggered" line shown on the alert: the SOS
+  /// button, or the phrase the device heard. Null when neither is known (an
+  /// older alert), so nothing is shown rather than a made-up value.
+  String? get detailLine =>
+      detailLineFor(triggerType: triggerType, detectedPhrase: detectedPhrase);
+
+  /// Same line, built from raw values -- the push notification carries them
+  /// as plain strings (see main.dart).
+  static String? detailLineFor({String? triggerType, String? detectedPhrase}) {
+    if ((triggerType ?? '').toUpperCase() == 'BUTTON') {
+      return 'Triggered by: SOS button';
+    }
+    final phrase = (detectedPhrase ?? '').trim();
+    if (phrase.isEmpty) return null;
+    return 'Detected phrase: “$phrase”';
+  }
 
   factory AlertModel.fromDoc(QueryDocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -159,6 +187,8 @@ class AlertModel {
       acknowledged: data['acknowledged'] == true,
       status: (data['alert_status'] as String?) ?? '',
       triggeredAt: (data['date_triggered'] as Timestamp?)?.toDate(),
+      triggerType: (data['trigger_type'] as String?) ?? '',
+      detectedPhrase: data['detected_phrase'] as String?,
     );
   }
 

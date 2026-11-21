@@ -4,12 +4,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../models/app_models.dart' show effectiveDeviceStatus;
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/user_avatar.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
-import '../services/notification_service.dart';
 import 'settings_screen.dart';
 import 'auth_screens.dart';
 import 'care_plan_screens.dart';
@@ -18,33 +18,6 @@ import 'legal_screens.dart';
 import 'personal_information_screen.dart';
 import 'home_screen.dart' show DeviceLocationScreen;
 import 'wifi_setup_screen.dart';
-
-/// The full text of the push-notification status (it is long when something
-/// failed) with a button to try registering this phone again.
-void _showNotificationStatus(BuildContext context) {
-  showDialog<void>(
-    context: context,
-    builder: (dialogContext) => ValueListenableBuilder<String>(
-      valueListenable: NotificationService.status,
-      builder: (_, status, _) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Notification status'),
-        content: SingleChildScrollView(child: SelectableText(status)),
-        actions: [
-          TextButton(
-            onPressed: () => NotificationService.refreshToken(),
-            child: const Text('Try again'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    ),
-  );
-}
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -126,19 +99,6 @@ class ProfileScreen extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (context) => const CarePlanScreen(),
                   ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              // Shows whether this phone is registered for emergency pushes
-              // (or the exact error), with a retry.
-              ValueListenableBuilder<String>(
-                valueListenable: NotificationService.status,
-                builder: (context, status, _) => _ProfileNavTile(
-                  icon: Icons.notifications_active_rounded,
-                  color: status.startsWith('Ready') ? Accent.green : Accent.yellow,
-                  title: 'Notification status',
-                  subtitle: status,
-                  onTap: () => _showNotificationStatus(context),
                 ),
               ),
               const SizedBox(height: 10),
@@ -248,6 +208,130 @@ void _showChangeWifiInstructions(BuildContext context) {
             );
           },
           child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+      ],
+    ),
+  );
+}
+
+/// "Forget WiFi Network": asks the device (through Firestore) to delete its
+/// saved WiFi and open the "Alisto-Setup" hotspot, without anyone having to
+/// unplug it -- which also did not work when the old WiFi was still in range
+/// (the device just reconnected to it). Only possible while the device is
+/// online, because that is how it receives the request.
+Future<void> _confirmForgetWifi(
+  BuildContext context, {
+  required String serial,
+  required String status,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  if (status != 'Online') {
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Alisto must be online to forget its WiFi. If it is offline, '
+          'unplug it for 10 seconds and plug it back in, then use '
+          '"Change WiFi Network".',
+        ),
+      ),
+    );
+    return;
+  }
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: const Text('Forget WiFi Network?'),
+      content: const Text(
+        'Alisto will forget its saved WiFi and start its own "Alisto-Setup" '
+        'WiFi instead.\n\n'
+        'Emergency alerts by SMS still work, but Alisto will show as offline '
+        'in the app until you connect it to a new WiFi. You need to be near '
+        'Alisto to do that.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text(
+            'Forget WiFi',
+            style: TextStyle(
+              color: AppColors.error,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  try {
+    await FirestoreService.requestForgetWifi(serial);
+  } catch (e) {
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Could not send the request. Please try again. ($e)'),
+        backgroundColor: AppColors.error,
+      ),
+    );
+    return;
+  }
+  if (!context.mounted) return;
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: const Text('Request sent'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Text('Alisto is forgetting its WiFi. Next:'),
+          SizedBox(height: 12),
+          _WifiStep(
+            number: '1',
+            text: 'Wait about a minute. Alisto will say "WiFi removed" and start its own "Alisto-Setup" WiFi.',
+          ),
+          SizedBox(height: 8),
+          _WifiStep(
+            number: '2',
+            text: 'On your phone, open WiFi settings and connect to "Alisto-Setup".',
+          ),
+          SizedBox(height: 8),
+          _WifiStep(
+            number: '3',
+            text: 'Come back here and tap Continue to enter the new WiFi name and password.',
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Close'),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(dialogContext);
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    const WifiSetupScreen(isReconfiguring: true),
+              ),
+            );
+          },
+          child: const Text(
+            'Continue',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
         ),
       ],
     ),
@@ -445,6 +529,18 @@ class DeviceInformationScreen extends StatelessWidget {
                           title: 'Change WiFi Network',
                           subtitle: 'Moved Alisto somewhere new? Connect it to a different WiFi',
                           onTap: () => _showChangeWifiInstructions(context),
+                        ),
+                        const SizedBox(height: 10),
+                        _ProfileNavTile(
+                          icon: Icons.wifi_off_rounded,
+                          color: AppColors.error,
+                          title: 'Forget WiFi Network',
+                          subtitle: 'Remove the saved WiFi so Alisto can join a new one',
+                          onTap: () => _confirmForgetWifi(
+                            context,
+                            serial: snapshot.data!.id,
+                            status: effectiveDeviceStatus(storedStatus, lastSeenRaw),
+                          ),
                         ),
                       ],
                     );

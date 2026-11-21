@@ -12,8 +12,8 @@ import '../widgets/common_widgets.dart';
 class HelpSupportScreen extends StatelessWidget {
   const HelpSupportScreen({super.key});
 
-  // TODO: replace with ALISTO's real support contact details.
-  static const String supportPhone = '+63 32 000 0000';
+  // TODO: replace the email/address with ALISTO's real support details.
+  static const String supportPhone = '09659536513';
   static const String supportEmail = 'alisto.support@uc.edu.ph';
   static const String supportAddress =
       'University of Cebu, College of Computer Studies\nCebu City, Philippines';
