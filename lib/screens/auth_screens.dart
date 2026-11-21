@@ -36,29 +36,31 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final logoSize = context.clampHeight(0.14, min: 80, max: 140);
+    // Large enough to read: the logo image itself contains the "Alisto"
+    // wordmark AND the tagline "Help. Always Within Reach." under it, so no
+    // separate text is added here (it used to repeat the tagline).
+    final logoSize = context.clampHeight(0.26, min: 160, max: 260);
     return Scaffold(
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.asset(
-              'assets/images/alisto_logo.png',
-              width: logoSize,
-              errorBuilder: (context, error, stackTrace) => Icon(
+        child: Image.asset(
+          'assets/images/alisto_logo.png',
+          width: logoSize,
+          errorBuilder: (context, error, stackTrace) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
                 Icons.favorite_rounded,
-                size: logoSize,
+                size: logoSize * 0.5,
                 color: AppColors.primary,
               ),
-            ),
-            // No separate "Alisto" text: the logo image already contains
-            // the Alisto wordmark.
-            const SizedBox(height: 16),
-            Text(
-              'Help, Always Within Reach.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+              const SizedBox(height: 16),
+              // Only if the logo image is missing, so the tagline still shows.
+              Text(
+                'Help, Always Within Reach.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
         ),
       ),
     );
