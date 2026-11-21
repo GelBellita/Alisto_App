@@ -11,6 +11,7 @@ import '../models/app_models.dart';
 import 'care_plan_screens.dart';
 import 'medicine_screens.dart';
 import 'history_screen.dart';
+import 'main_nav_screen.dart';
 
 /// How many reminders the Home card previews before "View All" is needed.
 const int _kHomeMedicinePreviewCount = 3;
@@ -97,10 +98,17 @@ class _HomeHeader extends StatelessWidget {
             ),
             InkWell(
               borderRadius: BorderRadius.circular(20),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const HistoryScreen()),
-              ),
+              // The History TAB (tab 1), same as the bottom bar's History.
+              onTap: () {
+                if (!MainNavScreen.goToTab(1)) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const HistoryScreen(),
+                    ),
+                  );
+                }
+              },
               child: const Padding(
                 padding: EdgeInsets.all(4),
                 child: Icon(
@@ -237,10 +245,14 @@ class _LastAlertTile extends StatelessWidget {
 
         return InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const HistoryScreen()),
-          ),
+          onTap: () {
+            if (!MainNavScreen.goToTab(1)) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryScreen()),
+              );
+            }
+          },
           child: _StatTile(
             icon: Icons.history_rounded,
             color: isEmergency ? AppColors.error : Accent.yellow,
@@ -698,6 +710,7 @@ class _QuickActionCard extends StatelessWidget {
     );
   }
 }
+
 // ---------------------------------------------------------
 // DEVICE LOCATION — full-screen equivalent of the web dashboard's
 // "Last Known Location" panel + its "View on Map" modal, combined.
@@ -709,9 +722,8 @@ class DeviceLocationScreen extends StatelessWidget {
 
   void _copy(BuildContext context, String value, String label) {
     Clipboard.setData(ClipboardData(text: value));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$label copied')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('$label copied')));
   }
 
   @override
@@ -740,7 +752,8 @@ class DeviceLocationScreen extends StatelessWidget {
                 StreamBuilder<LocationModel?>(
                   stream: FirestoreService.latestLocationStream(),
                   builder: (context, snapshot) {
-                    if (!snapshot.hasData && snapshot.connectionState == ConnectionState.waiting) {
+                    if (!snapshot.hasData &&
+                        snapshot.connectionState == ConnectionState.waiting) {
                       return const Padding(
                         padding: EdgeInsets.symmetric(vertical: 60),
                         child: Center(child: CircularProgressIndicator()),
@@ -793,14 +806,14 @@ class DeviceLocationScreen extends StatelessWidget {
                                   ),
                                   initialZoom: 16,
                                   interactionOptions: const InteractionOptions(
-                                    flags: InteractiveFlag.pinchZoom |
+                                    flags:
+                                        InteractiveFlag.pinchZoom |
                                         InteractiveFlag.drag,
                                   ),
                                 ),
                                 children: [
                                   TileLayer(
-                                    urlTemplate:
-                                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                     userAgentPackageName: 'com.alisto.app',
                                   ),
                                   MarkerLayer(
@@ -841,11 +854,8 @@ class DeviceLocationScreen extends StatelessWidget {
                                 icon: Icons.location_on_rounded,
                                 label: 'Address',
                                 value: location.address,
-                                onCopy: () => _copy(
-                                  context,
-                                  location.address,
-                                  'Address',
-                                ),
+                                onCopy: () =>
+                                    _copy(context, location.address, 'Address'),
                               ),
                               const SizedBox(height: 12),
                               _LocationDetailRow(

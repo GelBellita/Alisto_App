@@ -240,33 +240,82 @@ Future<void> _confirmForgetWifi(
 
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
+    builder: (dialogContext) => Dialog(
       backgroundColor: AppColors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      title: const Text('Forget WiFi Network?'),
-      content: const Text(
-        'Alisto will forget its saved WiFi and start its own "Alisto-Setup" '
-        'WiFi instead.\n\n'
-        'Emergency alerts by SMS still work, but Alisto will show as offline '
-        'in the app until you connect it to a new WiFi. You need to be near '
-        'Alisto to do that.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text(
-            'Forget WiFi',
-            style: TextStyle(
-              color: AppColors.error,
-              fontWeight: FontWeight.w700,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 24, 22, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.10),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.wifi_off_rounded,
+                color: AppColors.error,
+                size: 28,
+              ),
             ),
-          ),
+            const SizedBox(height: 14),
+            Text(
+              'Forget WiFi?',
+              style: Theme.of(dialogContext).textTheme.titleLarge?.copyWith(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Alisto will forget its saved WiFi and open its own '
+              '"Alisto-Setup" WiFi.',
+              textAlign: TextAlign.center,
+              style: Theme.of(dialogContext).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            const _ForgetWifiPoint(
+              icon: Icons.sms_rounded,
+              text: 'Emergency SMS still works.',
+            ),
+            const _ForgetWifiPoint(
+              icon: Icons.cloud_off_rounded,
+              text: 'Alisto shows as offline in the app until you connect a '
+                  'new WiFi.',
+            ),
+            const _ForgetWifiPoint(
+              icon: Icons.near_me_rounded,
+              text: 'You need to be near Alisto to set it up.',
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.error,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Forget WiFi'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
-      ],
+      ),
     ),
   );
   if (confirmed != true || !context.mounted) return;
@@ -336,6 +385,37 @@ Future<void> _confirmForgetWifi(
       ],
     ),
   );
+}
+
+/// One short line with an icon in the "Forget WiFi?" dialog.
+class _ForgetWifiPoint extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _ForgetWifiPoint({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: AppColors.textSecondary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _WifiStep extends StatelessWidget {

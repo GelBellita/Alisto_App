@@ -12,6 +12,21 @@ class MainNavScreen extends StatefulWidget {
   final int initialIndex;
   const MainNavScreen({super.key, this.initialIndex = 0});
 
+  /// Set by the tab bar while it is on screen. Lets a screen INSIDE a tab
+  /// (the Home bell, the "Last Alert" tile) switch to another tab -- so
+  /// History opens as the real History tab, with the bottom bar and the
+  /// status-bar spacing, instead of a bare copy pushed on top.
+  static void Function(int index)? _switchTab;
+
+  /// Switches to tab [index]. Returns false when no tab bar is showing (the
+  /// caller should then open the screen another way).
+  static bool goToTab(int index) {
+    final switchTab = _switchTab;
+    if (switchTab == null) return false;
+    switchTab(index);
+    return true;
+  }
+
   @override
   State<MainNavScreen> createState() => _MainNavScreenState();
 }
@@ -19,6 +34,20 @@ class MainNavScreen extends StatefulWidget {
 class _MainNavScreenState extends State<MainNavScreen> {
   late int _index = widget.initialIndex;
   DateTime? _lastBackPress;
+
+  @override
+  void initState() {
+    super.initState();
+    MainNavScreen._switchTab = (i) {
+      if (mounted) setState(() => _index = i);
+    };
+  }
+
+  @override
+  void dispose() {
+    MainNavScreen._switchTab = null;
+    super.dispose();
+  }
 
   static const _pages = [
     HomeScreen(),

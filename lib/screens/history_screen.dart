@@ -154,75 +154,81 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   onDelete: () => _delete(selectedIds, all: false),
                 )
               : null,
-          body: ResponsiveContent(
-            child: RefreshIndicator(
-              color: AppColors.primary,
-              onRefresh: () =>
-                  Future.delayed(const Duration(milliseconds: 600)),
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _selectMode
-                        ? _SelectionHeader(
-                            count: selectedIds.length,
-                            onClose: _exitSelectMode,
-                          )
-                        : _NormalHeader(
-                            hasItems: visible.isNotEmpty,
-                            onSelect: () => _enterSelectMode(),
-                            onDeleteAll: () => _delete(
-                              visible.map((a) => a.id).toList(),
-                              all: true,
-                            ),
-                          ),
-                    const SizedBox(height: 14),
-                    // The filter chips always get the full width, so none of
-                    // them is cut off while selecting (they used to share
-                    // this row with "Select all", which clipped "System").
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: _SegmentedTabs(
-                        labels: _tabs,
-                        index: _tab,
-                        onChanged: (i) => setState(() {
-                          _tab = i;
-                          _selected.clear();
-                        }),
-                      ),
-                    ),
-                    if (_selectMode) ...[
-                      const SizedBox(height: 10),
-                      // "N notifications" on the left, "Select all ◯" on the
-                      // right, the circle lined up with the cards' circles.
-                      Row(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(left: 4),
-                            child: Text(
-                              '${visible.length} '
-                              'notification${visible.length == 1 ? '' : 's'}',
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                color: AppColors.textSecondary,
+          // SafeArea: when this screen is pushed on its own (no tab bar
+          // around it) it would otherwise run under the status bar. Inside
+          // the tabs it is a no-op, the tab bar already applied it.
+          body: SafeArea(
+            bottom: false,
+            child: ResponsiveContent(
+              child: RefreshIndicator(
+                color: AppColors.primary,
+                onRefresh: () =>
+                    Future.delayed(const Duration(milliseconds: 600)),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _selectMode
+                          ? _SelectionHeader(
+                              count: selectedIds.length,
+                              onClose: _exitSelectMode,
+                            )
+                          : _NormalHeader(
+                              hasItems: visible.isNotEmpty,
+                              onSelect: () => _enterSelectMode(),
+                              onDeleteAll: () => _delete(
+                                visible.map((a) => a.id).toList(),
+                                all: true,
                               ),
                             ),
-                          ),
-                          const Spacer(),
-                          _SelectAllButton(
-                            allSelected: allSelected,
-                            onTap: visible.isEmpty
-                                ? null
-                                : () => _toggleAll(visible),
-                          ),
-                        ],
+                      const SizedBox(height: 14),
+                      // The filter chips always get the full width, so none of
+                      // them is cut off while selecting (they used to share
+                      // this row with "Select all", which clipped "System").
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: _SegmentedTabs(
+                          labels: _tabs,
+                          index: _tab,
+                          onChanged: (i) => setState(() {
+                            _tab = i;
+                            _selected.clear();
+                          }),
+                        ),
                       ),
+                      if (_selectMode) ...[
+                        const SizedBox(height: 10),
+                        // "N notifications" on the left, "Select all ◯" on the
+                        // right, the circle lined up with the cards' circles.
+                        Row(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(left: 4),
+                              child: Text(
+                                '${visible.length} '
+                                'notification${visible.length == 1 ? '' : 's'}',
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                            const Spacer(),
+                            _SelectAllButton(
+                              allSelected: allSelected,
+                              onTap: visible.isEmpty
+                                  ? null
+                                  : () => _toggleAll(visible),
+                            ),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      _buildList(snapshot, visible),
                     ],
-                    const SizedBox(height: 16),
-                    _buildList(snapshot, visible),
-                  ],
+                  ),
                 ),
               ),
             ),
